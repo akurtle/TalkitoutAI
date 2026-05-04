@@ -4,6 +4,7 @@ import FeedbackPanel from "../components/Interview/FeedbackPanel";
 import FreeTalkSpeechPractice from "../components/Interview/FreeTalkSpeechPractice";
 import MockInterviewAudioPanel from "../components/Interview/MockInterviewAudioPanel";
 import MockInterviewInfoModal from "../components/Interview/MockInterviewInfoModal";
+import MouthArticulationCoach from "../components/Interview/MouthArticulationCoach";
 import QuestionGenerator from "../components/Interview/QuestionGenerator";
 import SettingsModal from "../components/Interview/SettingsModal";
 import WebRTCRecorder from "../components/Interview/WebRTCRecorder";
@@ -291,6 +292,14 @@ function MockInterview() {
                     </div>
                   </div>
                 )}
+
+                <MouthArticulationCoach
+                  isLive={isLive}
+                  recordMode={controller.recordMode}
+                  videoFeedback={controller.videoFeedback}
+                  videoStatus={controller.videoFeedbackStatus}
+                  visionFrames={controller.visionFrames}
+                />
 
                 {practiceMode === "talk" && (
                   <div className="theme-panel-soft rounded-2xl p-4">
