@@ -7,7 +7,7 @@ import MockInterviewInfoModal from "../components/Interview/MockInterviewInfoMod
 import MouthArticulationCoach from "../components/Interview/MouthArticulationCoach";
 import QuestionGenerator from "../components/Interview/QuestionGenerator";
 import SettingsModal from "../components/Interview/SettingsModal";
-import WebRTCRecorder from "../components/Interview/WebRTCRecorder";
+import LocalMediaRecorder from "../components/Interview/LocalMediaRecorder";
 import { WaveIcon } from "../components/Brand/BrandLogo";
 import { useMockInterviewController } from "../hooks/useMockInterviewController";
 import { useLiveSpeechMetrics } from "../hooks/useLiveSpeechMetrics";
@@ -68,6 +68,7 @@ function MockInterview() {
   const navigate = useNavigate();
   const location = useLocation();
   const practiceMode = useMemo(() => getStoredPracticeMode(location.search), [location.search]);
+  const isPaused = controller.connectionStatus === "paused";
   const isLive =
     controller.connectionStatus === "connecting" ||
     controller.connectionStatus === "connected" ||
@@ -106,8 +107,8 @@ function MockInterview() {
     setElapsedSeconds(0);
   }, [controller]);
 
-  const handleWebRTCFullStop = useCallback(() => {
-    controller.handleWebRTCFullStopPending();
+  const handleLocalMediaFullStop = useCallback(() => {
+    controller.handleLocalMediaFullStopPending();
     setElapsedSeconds(0);
   }, [controller]);
 
@@ -115,7 +116,9 @@ function MockInterview() {
 
   const coachMessage = isLive
     ? "Keep your answer anchored in one clear point, then support it with a concrete example."
-    : controller.speechFeedbackStatus === "ready" || controller.videoFeedbackStatus === "ready"
+    : isPaused
+      ? "Session paused. Resume when you are ready to continue from the same run."
+      : controller.speechFeedbackStatus === "ready" || controller.videoFeedbackStatus === "ready"
       ? "Your report is ready. Review the feedback panel for patterns to carry into the next run."
       : "Start your session and I will give you real-time tips as your answer develops.";
 
@@ -191,14 +194,16 @@ function MockInterview() {
               <MockInterviewAudioPanel
                 audioStatus={controller.audioStatus}
                 isAudioRunning={controller.isAudioRunning}
+                isPaused={controller.isAudioPaused}
                 onToggle={controller.handleAudioToggle}
                 onFullStop={handleAudioFullStop}
               />
             ) : (
-              <WebRTCRecorder
+              <LocalMediaRecorder
                 mode={controller.recordMode}
                 sessionType={controller.sessionType}
                 callEnvironment={controller.callEnvironment}
+                audienceStyle={controller.audienceStyle}
                 selectedAudioInputId={controller.mediaSelection.audioInputId}
                 selectedVideoInputId={controller.mediaSelection.videoInputId}
                 onPreferredDevicesUnavailable={controller.handlePreferredDevicesUnavailable}
@@ -208,7 +213,7 @@ function MockInterview() {
                 onVisionData={controller.handleVisionData}
                 onRecordingReady={controller.handleRecordingReady}
                 onStreamReady={controller.setSharedMediaStream}
-                onFullStop={handleWebRTCFullStop}
+                onFullStop={handleLocalMediaFullStop}
               />
             )}
 
@@ -430,7 +435,9 @@ function MockInterview() {
         onClose={() => setIsSettingsOpen(false)}
         recordMode={controller.recordMode}
         callEnvironment={controller.callEnvironment}
+        audienceStyle={controller.audienceStyle}
         onSetCallEnvironment={controller.setCallEnvironment}
+        onSetAudienceStyle={controller.setAudienceStyle}
         setRecordMode={controller.setRecordMode}
         mediaDevices={controller.mediaDevices}
         mediaSelection={controller.mediaSelection}
