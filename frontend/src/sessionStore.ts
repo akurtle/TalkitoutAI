@@ -10,6 +10,34 @@ import { isSupabaseConfigured, supabase } from "./supabase";
 
 const SESSION_RECORDINGS_BUCKET = "session-recordings";
 
+const computeOverallScore = (
+  speechScore: number | null,
+  videoScore: number | null,
+  responseScore: number | null
+): number | null => {
+  const has = {
+    speech: typeof speechScore === "number",
+    video: typeof videoScore === "number",
+    response: typeof responseScore === "number",
+  };
+  if (!has.speech && !has.video && !has.response) return null;
+  if (has.speech && has.video && has.response) {
+    return Math.round((speechScore! * 0.35 + videoScore! * 0.30 + responseScore! * 0.35) * 100) / 100;
+  }
+  if (has.speech && has.video) {
+    return Math.round((speechScore! * 0.55 + videoScore! * 0.45) * 100) / 100;
+  }
+  if (has.speech && has.response) {
+    return Math.round((speechScore! * 0.45 + responseScore! * 0.55) * 100) / 100;
+  }
+  if (has.video && has.response) {
+    return Math.round((videoScore! * 0.45 + responseScore! * 0.55) * 100) / 100;
+  }
+  if (has.speech) return speechScore!;
+  if (has.video) return videoScore!;
+  return responseScore!;
+};
+
 const getRecordingExtension = (mimeType: string) => {
   const normalized = mimeType.toLowerCase();
 
@@ -69,6 +97,20 @@ export async function saveInterviewSession(payload: SessionSavePayload): Promise
     throw new Error("Supabase is not configured.");
   }
 
+  const speechScore =
+    typeof (payload.speechFeedback as { score?: unknown } | null)?.score === "number"
+      ? (payload.speechFeedback as { score: number }).score
+      : null;
+  const videoScore =
+    typeof (payload.videoFeedback as { score?: unknown } | null)?.score === "number"
+      ? (payload.videoFeedback as { score: number }).score
+      : null;
+  const responseScore =
+    typeof (payload.speechFeedback as { response_score?: unknown } | null)?.response_score === "number"
+      ? (payload.speechFeedback as { response_score: number }).response_score
+      : null;
+  const overallScore = computeOverallScore(speechScore, videoScore, responseScore);
+
   const { data, error } = await supabase
     .from("interview_sessions")
     .insert({
@@ -81,14 +123,10 @@ export async function saveInterviewSession(payload: SessionSavePayload): Promise
       vision_frames: payload.visionFrames,
       speech_feedback: payload.speechFeedback,
       video_feedback: payload.videoFeedback,
-      speech_score:
-        typeof (payload.speechFeedback as { score?: unknown } | null)?.score === "number"
-          ? (payload.speechFeedback as { score: number }).score
-          : null,
-      video_score:
-        typeof (payload.videoFeedback as { score?: unknown } | null)?.score === "number"
-          ? (payload.videoFeedback as { score: number }).score
-          : null,
+      speech_score: speechScore,
+      video_score: videoScore,
+      response_score: responseScore,
+      overall_score: overallScore,
       started_at: payload.startedAt,
       ended_at: payload.endedAt,
     })
