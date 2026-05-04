@@ -105,23 +105,31 @@ const MockInterviewAudioPanel = ({ audioStatus, isAudioRunning, onToggle }: Prop
       <div className="flex items-center justify-center p-12">
         <div className="text-center">
           <div className="theme-icon-badge mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full">
-            <svg
-              className="theme-accent-text h-10 w-10"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
-              />
-            </svg>
+            {audioStatus === "connecting" || audioStatus === "connected" ? (
+              <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-yellow-400 border-t-transparent" />
+            ) : (
+              <svg
+                className="theme-accent-text h-10 w-10"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                />
+              </svg>
+            )}
           </div>
           <p className="theme-text-primary text-lg font-semibold">Live Audio Transcription</p>
           <p className="theme-text-muted mt-2 text-sm">
-            {audioStatus === "recording" ? "Listening for your response..." : "Ready when you are"}
+            {audioStatus === "recording"
+              ? "Listening for your response..."
+              : audioStatus === "connecting" || audioStatus === "connected"
+                ? "Hold on — setting up microphone..."
+                : "Ready when you are"}
           </p>
         </div>
       </div>
