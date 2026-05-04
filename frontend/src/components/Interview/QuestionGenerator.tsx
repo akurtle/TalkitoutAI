@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchWithLoopbackFallback, getApiBase } from "../../network";
-import type { GeneratedQuestion, QuestionAnswerReview } from "./types";
+import type { GeneratedQuestion, QuestionAnswerReview, SessionType } from "../../types/interview";
 
 type QuestionGeneratorProps = {
   apiBase?: string;
   endpointPath?: string;
+  sessionType?: SessionType;
   onQuestions?: (questions: GeneratedQuestion[], raw: unknown) => void;
   onAnswersChange?: (answers: QuestionAnswerReview[]) => void;
   onInputChange?: (inputs: { role: string; company: string; callType: string }) => void;
@@ -23,11 +24,81 @@ type QuestionResponse = {
   };
 };
 
+type QuestionRequestPayload = {
+  role?: string;
+  company?: string;
+  call_type: string;
+};
+
+type ContextPreset = {
+  value: string;
+  label: string;
+  description: string;
+};
+
 const defaultApiBase = getApiBase();
+const TARGET_QUESTION_COUNT = 10;
+
+const INTERVIEW_PRESETS: ContextPreset[] = [
+  {
+    value: "behavioral_interview",
+    label: "Behavioral Interview",
+    description: "Practice story-driven answers about teamwork, ownership, and impact.",
+  },
+  {
+    value: "technical_interview",
+    label: "Technical Interview",
+    description: "Prepare for architecture, debugging, and implementation-style questions.",
+  },
+  {
+    value: "hiring_manager_interview",
+    label: "Hiring Manager Interview",
+    description: "Focus on role fit, priorities, and how you would add value quickly.",
+  },
+  {
+    value: "panel_interview",
+    label: "Panel Interview",
+    description: "Train for mixed stakeholder questions and switching context smoothly.",
+  },
+];
+
+const PITCH_PRESETS: ContextPreset[] = [
+  {
+    value: "sales_pitch",
+    label: "Sales Pitch",
+    description: "Practice positioning, value articulation, and objection handling.",
+  },
+  {
+    value: "product_demo",
+    label: "Product Demo",
+    description: "Rehearse a walkthrough that ties features back to outcomes.",
+  },
+  {
+    value: "stakeholder_presentation",
+    label: "Stakeholder Presentation",
+    description: "Prepare for a structured presentation with strategic questions.",
+  },
+  {
+    value: "investor_pitch",
+    label: "Investor Pitch",
+    description: "Focus on traction, market story, and high-stakes follow-up questions.",
+  },
+];
+
+const getPresetsForSession = (sessionType: SessionType) =>
+  sessionType === "pitch" ? PITCH_PRESETS : INTERVIEW_PRESETS;
+
+const getDefaultCallType = (sessionType: SessionType) =>
+  getPresetsForSession(sessionType)[0]?.value ?? "interview";
+
+const getCallTypeLabel = (sessionType: SessionType, callType: string) =>
+  getPresetsForSession(sessionType).find((preset) => preset.value === callType)?.label ??
+  (sessionType === "pitch" ? "Pitch Session" : "Interview");
 
 export default function QuestionGenerator({
   apiBase = defaultApiBase,
   endpointPath = "/questions/generate",
+  sessionType = "interview",
   onQuestions,
   onAnswersChange,
   onInputChange,
@@ -38,13 +109,15 @@ export default function QuestionGenerator({
   const endpoint = useMemo(() => `${apiBase}${endpointPath}`, [apiBase, endpointPath]);
   const [role, setRole] = useState("");
   const [company, setCompany] = useState("");
-  const [callType, setCallType] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [callType, setCallType] = useState(getDefaultCallType(sessionType));
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isFetchingNextQuestion, setIsFetchingNextQuestion] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [questions, setQuestions] = useState<GeneratedQuestion[]>([]);
   const [usedInputs, setUsedInputs] = useState<string[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [rawResponse, setRawResponse] = useState<unknown>(null);
+  const [generationContext, setGenerationContext] = useState<QuestionRequestPayload | null>(null);
   const [interviewStatus, setInterviewStatus] = useState<"idle" | "running" | "ended">("idle");
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<QuestionAnswerReview[]>([]);
@@ -54,6 +127,20 @@ export default function QuestionGenerator({
   const questionStartRef = useRef<number | null>(null);
   const transcriptStartIndexRef = useRef<number>(0);
   const startSignalRef = useRef<number | null>(null);
+  const contextPresets = useMemo(() => getPresetsForSession(sessionType), [sessionType]);
+  const currentPreset =
+    contextPresets.find((preset) => preset.value === callType) ?? contextPresets[0];
+  const roleLabel = sessionType === "pitch" ? "What are you pitching?" : "Target role";
+  const companyLabel = sessionType === "pitch" ? "Audience or company" : "Company";
+  const rolePlaceholder =
+    sessionType === "pitch" ? "AI interview copilot for recruiting teams" : "Senior Frontend Engineer";
+  const companyPlaceholder =
+    sessionType === "pitch" ? "Hiring leaders at growth-stage startups" : "Acme Inc.";
+  const generatorTitle = sessionType === "pitch" ? "Pitch Generator" : "Question Generator";
+  const isBusy = isGenerating || isFetchingNextQuestion;
+  const inputsLocked = questions.length > 0 || isBusy || interviewStatus !== "idle";
+  const canRequestAnotherQuestion =
+    generationContext !== null && questions.length < TARGET_QUESTION_COUNT;
 
   const normalizeItem = (item: string | GeneratedQuestion): GeneratedQuestion | null => {
     if (typeof item === "string") {
@@ -96,18 +183,6 @@ export default function QuestionGenerator({
     return [];
   };
 
-  const sortQuestions = (items: GeneratedQuestion[]) => {
-    return items
-      .map((item, index) => ({ item, index }))
-      .sort((a, b) => {
-        const aIsBehavioral = (a.item.category ?? "").toLowerCase() === "behavioral";
-        const bIsBehavioral = (b.item.category ?? "").toLowerCase() === "behavioral";
-        if (aIsBehavioral === bIsBehavioral) return a.index - b.index;
-        return aIsBehavioral ? -1 : 1;
-      })
-      .map((entry) => entry.item);
-  };
-
   const normalizeCategory = (value?: string | null) => {
     if (!value) return "general";
     return value.toLowerCase().trim().replace(/\s+/g, "_");
@@ -144,8 +219,14 @@ export default function QuestionGenerator({
   }, [questions]);
 
   useEffect(() => {
-    onInputChange?.({ role, company, callType });
-  }, [role, company, callType, onInputChange]);
+    if (!contextPresets.some((preset) => preset.value === callType)) {
+      setCallType(getDefaultCallType(sessionType));
+    }
+  }, [callType, contextPresets, sessionType]);
+
+  useEffect(() => {
+    onInputChange?.({ role, company, callType: getCallTypeLabel(sessionType, callType) });
+  }, [role, company, callType, onInputChange, sessionType]);
 
   useEffect(() => {
     onAnswersChange?.(answers);
@@ -224,6 +305,65 @@ export default function QuestionGenerator({
     });
   };
 
+  const resetInterviewState = () => {
+    setInterviewStatus("idle");
+    setCurrentIndex(0);
+    setAnswers([]);
+    setNowMs(null);
+    sessionStartRef.current = null;
+    questionStartRef.current = null;
+    transcriptStartIndexRef.current = 0;
+  };
+
+  const requestQuestions = async (
+    context: QuestionRequestPayload,
+    existingQuestions: GeneratedQuestion[]
+  ) => {
+    const response = await fetchWithLoopbackFallback(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...context,
+        num_questions: 1,
+        asked_questions: existingQuestions.map((item) => item.question),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Question generation failed (${response.status})`);
+    }
+
+    const data = (await response.json()) as QuestionResponse;
+    const extracted = extractQuestions(data);
+
+    return { data, extracted };
+  };
+
+  const loadNextQuestion = async (
+    context: QuestionRequestPayload,
+    existingQuestions: GeneratedQuestion[]
+  ) => {
+    try {
+      const { data, extracted } = await requestQuestions(context, existingQuestions);
+      const nextQuestions = extracted.length > 0 ? [...existingQuestions, ...extracted] : existingQuestions;
+      setQuestions(nextQuestions);
+      setUsedInputs(Array.isArray(data?.used_inputs) ? data.used_inputs : []);
+      setWarnings(Array.isArray(data?.warnings) ? data.warnings : []);
+      setRawResponse(data);
+      onQuestions?.(nextQuestions, data);
+      return nextQuestions;
+    } catch (err: unknown) {
+      if (err instanceof TypeError) {
+        setError(
+          `Unable to reach the question API at ${endpoint}. Make sure the backend is running and that VITE_API_BASE points to the correct host.`
+        );
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to generate the next question.");
+      }
+      return undefined;
+    }
+  };
+
   const startInterview = () => {
     if (questions.length === 0) {
       setError("Generate questions before starting the interview.");
@@ -238,11 +378,32 @@ export default function QuestionGenerator({
     transcriptStartIndexRef.current = (transcripts ?? []).length;
   };
 
-  const goToNextQuestion = () => {
+  const goToNextQuestion = async () => {
     finalizeAnswer();
     const nextIndex = currentIndex + 1;
     if (nextIndex >= questions.length) {
-      endInterview();
+      if (!generationContext || !canRequestAnotherQuestion) {
+        endInterview();
+        return;
+      }
+
+      setError(null);
+      setIsFetchingNextQuestion(true);
+      const nextQuestions = await loadNextQuestion(generationContext, questions);
+      setIsFetchingNextQuestion(false);
+
+      if (nextQuestions === undefined) {
+        return;
+      }
+
+      if (nextQuestions.length <= nextIndex) {
+        endInterview();
+        return;
+      }
+
+      setCurrentIndex(nextIndex);
+      questionStartRef.current = Date.now();
+      transcriptStartIndexRef.current = (transcripts ?? []).length;
       return;
     }
     setCurrentIndex(nextIndex);
@@ -258,53 +419,54 @@ export default function QuestionGenerator({
 
   const handleGenerate = async () => {
     if (!role.trim()) {
-      setError("Add a role to generate questions.");
+      setError(
+        sessionType === "pitch"
+          ? "Add what you want to pitch before generating prompts."
+          : "Add a target role before generating questions."
+      );
       return;
     }
 
-    setIsLoading(true);
+    const nextContext: QuestionRequestPayload = {
+      role: role.trim() || undefined,
+      company: company.trim() || undefined,
+      call_type: getCallTypeLabel(sessionType, callType),
+    };
+
+    setIsGenerating(true);
     setError(null);
     setQuestions([]);
     setUsedInputs([]);
     setWarnings([]);
     setRawResponse(null);
-    setInterviewStatus("idle");
-
-    const payload = {
-      role: role.trim() || undefined,
-      company: company.trim() || undefined,
-      call_type: callType.trim() || undefined,
-    };
+    setGenerationContext(nextContext);
+    onQuestions?.([], null);
+    resetInterviewState();
 
     try {
-      const response = await fetchWithLoopbackFallback(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Question generation failed (${response.status})`);
-      }
-
-      const data = (await response.json()) as QuestionResponse;
-      const extracted = extractQuestions(data);
-      const sorted = sortQuestions(extracted);
-      setQuestions(sorted);
+      const { data, extracted } = await requestQuestions(nextContext, []);
+      setQuestions(extracted);
       setUsedInputs(Array.isArray(data?.used_inputs) ? data.used_inputs : []);
       setWarnings(Array.isArray(data?.warnings) ? data.warnings : []);
       setRawResponse(data);
-      onQuestions?.(sorted, data);
-    } catch (err: any) {
+      onQuestions?.(extracted, data);
+      if (extracted.length === 0) {
+        setError(
+          sessionType === "pitch"
+            ? "The API did not return a prompt. Try adjusting the pitch brief and regenerate."
+            : "The API did not return a question. Try adjusting the interview brief and regenerate."
+        );
+      }
+    } catch (err: unknown) {
       if (err instanceof TypeError) {
         setError(
           `Unable to reach the question API at ${endpoint}. Make sure the backend is running and that VITE_API_BASE points to the correct host.`
         );
       } else {
-        setError(err?.message ?? "Failed to generate questions.");
+        setError(err instanceof Error ? err.message : "Failed to generate questions.");
       }
     } finally {
-      setIsLoading(false);
+      setIsGenerating(false);
     }
   };
 
@@ -353,47 +515,72 @@ export default function QuestionGenerator({
     <div className="theme-panel rounded-2xl p-6 backdrop-blur">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="theme-text-primary text-lg font-semibold">Question Generator</h2>
-          <p className="theme-text-muted text-xs">
-            Generate tailored questions for interviews, sales calls, or presentations.
-          </p>
+          <h2 className="theme-text-primary text-lg font-semibold">{generatorTitle}</h2>
         </div>
       </div>
 
       <div className="space-y-3">
+        <div className="theme-panel-soft rounded-2xl p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="theme-text-primary text-sm font-semibold">
+                {sessionType === "pitch" ? "Pitch Brief" : "Interview Brief"}
+              </p>
+            </div>
+            <span className="theme-chip rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.18em]">
+              {sessionType}
+            </span>
+          </div>
+
+          <div className="mt-4 grid gap-2">
+            {contextPresets.map((preset) => {
+              const isSelected = preset.value === callType;
+              return (
+                <button
+                  key={preset.value}
+                  type="button"
+                  disabled={inputsLocked}
+                  onClick={() => setCallType(preset.value)}
+                  className={`rounded-xl border px-4 py-3 text-left transition ${
+                    isSelected ? "theme-choice-active" : "theme-button-secondary"
+                  } ${inputsLocked ? "cursor-not-allowed opacity-60" : ""}`}
+                >
+                  <p className="theme-text-primary text-sm font-semibold">{preset.label}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="grid gap-3 md:grid-cols-2">
           <div>
-            <label className="theme-text-muted text-xs">Role</label>
+            <label className="theme-text-muted text-xs">{roleLabel}</label>
             <input
               type="text"
               value={role}
+              disabled={inputsLocked}
               onChange={(event) => setRole(event.target.value)}
-              placeholder="Account Executive"
+              placeholder={rolePlaceholder}
               className="theme-input mt-1 w-full rounded-lg px-3 py-2 text-sm"
             />
           </div>
 
           <div>
-            <label className="theme-text-muted text-xs">Company</label>
+            <label className="theme-text-muted text-xs">{companyLabel}</label>
             <input
               type="text"
               value={company}
+              disabled={inputsLocked}
               onChange={(event) => setCompany(event.target.value)}
-              placeholder="Acme Inc."
+              placeholder={companyPlaceholder}
               className="theme-input mt-1 w-full rounded-lg px-3 py-2 text-sm"
             />
           </div>
         </div>
 
-        <div>
-          <label className="theme-text-muted text-xs">Interview or call type</label>
-          <input
-            type="text"
-            value={callType}
-            onChange={(event) => setCallType(event.target.value)}
-            placeholder="Panel interview, discovery call, demo presentation"
-            className="theme-input mt-1 w-full rounded-lg px-3 py-2 text-sm"
-          />
+        <div className="theme-panel-soft rounded-2xl p-4">
+          <p className="theme-text-dim text-xs uppercase tracking-wide">Selected format</p>
+          <p className="theme-text-primary mt-2 text-sm font-semibold">{currentPreset?.label}</p>
         </div>
       </div>
 
@@ -407,30 +594,42 @@ export default function QuestionGenerator({
         <button
           type="button"
           onClick={handleGenerate}
-          disabled={isLoading}
+          disabled={isBusy}
           className={`flex-1 rounded-lg px-4 py-2.5 font-semibold transition ${
-            isLoading
+            isBusy
               ? "theme-button-secondary cursor-not-allowed opacity-60"
               : "theme-button-primary"
           }`}
         >
-          {isLoading ? "Generating..." : "Generate Questions"}
+          {isBusy
+            ? isFetchingNextQuestion
+              ? "Loading next question..."
+              : "Generating..."
+            : sessionType === "pitch"
+              ? "Generate First Prompt"
+              : "Generate First Question"}
         </button>
         <button
           type="button"
           onClick={() => {
             setRole("");
             setCompany("");
-            setCallType("");
+            setCallType(getDefaultCallType(sessionType));
             setQuestions([]);
             setUsedInputs([]);
             setWarnings([]);
             setRawResponse(null);
             setError(null);
-            setInterviewStatus("idle");
-            setAnswers([]);
+            setGenerationContext(null);
+            resetInterviewState();
+            onQuestions?.([], null);
           }}
-          className="theme-button-secondary rounded-lg px-4 py-2.5 text-sm"
+          disabled={isBusy}
+          className={`rounded-lg px-4 py-2.5 text-sm ${
+            isBusy
+              ? "theme-button-secondary cursor-not-allowed opacity-60"
+              : "theme-button-secondary"
+          }`}
         >
           Reset
         </button>
@@ -445,6 +644,7 @@ export default function QuestionGenerator({
                 <button
                   type="button"
                   onClick={startInterview}
+                  disabled={isBusy}
                   className="theme-chip rounded-lg px-3 py-1.5 text-xs"
                 >
                   Start interview
@@ -544,14 +744,26 @@ export default function QuestionGenerator({
                   <div className="mt-4 flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={goToNextQuestion}
-                      className="theme-button-primary flex-1 rounded-lg px-3 py-2 text-sm font-semibold"
+                      onClick={() => {
+                        void goToNextQuestion();
+                      }}
+                      disabled={isFetchingNextQuestion}
+                      className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold ${
+                        isFetchingNextQuestion
+                          ? "theme-button-secondary cursor-not-allowed opacity-60"
+                          : "theme-button-primary"
+                      }`}
                     >
-                      {currentIndex + 1 < questions.length ? "Next question" : "Finish interview"}
+                      {isFetchingNextQuestion
+                        ? "Loading next question..."
+                        : currentIndex + 1 < questions.length || canRequestAnotherQuestion
+                          ? "Next question"
+                          : "Finish interview"}
                     </button>
                     <button
                       type="button"
                       onClick={endInterview}
+                      disabled={isFetchingNextQuestion}
                       className="theme-button-secondary rounded-lg px-3 py-2 text-sm"
                     >
                       End interview
@@ -590,7 +802,9 @@ export default function QuestionGenerator({
           </pre>
         ) : (
           <p className="theme-text-dim text-sm">
-            Add a role, company, or call type to generate a tailored question set.
+            {sessionType === "pitch"
+              ? "Choose your pitch format, add the topic and audience, and generate the first tailored prompt."
+              : "Choose your interview format, add the role and company, and generate the first tailored question."}
           </p>
         )}
       </div>

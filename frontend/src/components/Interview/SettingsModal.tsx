@@ -1,16 +1,21 @@
-import ThemePicker from "../ThemePicker";
+import ThemePicker from "../Settings/ThemePicker";
+import { CALL_ENVIRONMENT_OPTIONS } from "./callEnvironments";
 import type {
+  CallEnvironmentId,
   MediaDeviceCatalog,
   MediaDeviceSelection,
   RecordMode,
-  StartupMetrics,
-} from "./types";
+} from "../../types/interview";
 
 type SettingsModalProps = {
   isOpen: boolean;
   onClose: () => void;
   recordMode: RecordMode;
+  callEnvironment: CallEnvironmentId;
+  onSetCallEnvironment: (environment: CallEnvironmentId) => void;
   setRecordMode: (mode: RecordMode) => void;
+  mouthTrackingEnabled: boolean;
+  onSetMouthTrackingEnabled: (enabled: boolean) => void;
   mediaDevices: MediaDeviceCatalog;
   mediaSelection: MediaDeviceSelection;
   onSelectAudioInput: (deviceId: string) => void;
@@ -21,32 +26,18 @@ type SettingsModalProps = {
   mediaDeviceLabelsAvailable: boolean;
   isSessionLocked: boolean;
   connectionStatus: string;
-  visionData: any;
-  startupMetrics: StartupMetrics;
+  visionData: unknown;
 };
-
-const formatMetricMs = (value: number | null) =>
-  typeof value === "number" && Number.isFinite(value) ? `${value} ms` : "Pending";
-
-const startupMetricLabels: Array<{ key: keyof StartupMetrics; label: string }> = [
-  { key: "media_stream_ready_ms", label: "Media stream ready" },
-  { key: "offer_created_ms", label: "Offer created" },
-  { key: "ice_gathering_complete_ms", label: "ICE gathering complete" },
-  { key: "results_socket_ready_ms", label: "Results socket ready" },
-  { key: "signaling_response_ms", label: "Signaling response" },
-  { key: "remote_description_ready_ms", label: "Remote description set" },
-  { key: "ice_connected_ms", label: "ICE connected" },
-  { key: "webrtc_connected_ms", label: "WebRTC connected" },
-  { key: "asr_socket_ready_ms", label: "ASR socket ready" },
-  { key: "asr_recording_ready_ms", label: "ASR recording started" },
-  { key: "session_ready_ms", label: "Session ready" },
-];
 
 export default function SettingsModal({
   isOpen,
   onClose,
   recordMode,
+  callEnvironment,
+  onSetCallEnvironment,
   setRecordMode,
+  mouthTrackingEnabled,
+  onSetMouthTrackingEnabled,
   mediaDevices,
   mediaSelection,
   onSelectAudioInput,
@@ -58,9 +49,9 @@ export default function SettingsModal({
   isSessionLocked,
   connectionStatus,
   visionData,
-  startupMetrics,
 }: SettingsModalProps) {
   if (!isOpen) return null;
+  const hasVisionData = visionData !== null && visionData !== undefined;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
@@ -82,6 +73,36 @@ export default function SettingsModal({
             title="Appearance"
             description="Switch themes without leaving the interview flow. The selection applies across the whole app."
           />
+        </div>
+
+        <div className="mb-6">
+          <p className="theme-text-muted mb-2 text-sm">Call environment</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {CALL_ENVIRONMENT_OPTIONS.map((environment) => (
+              <button
+                key={environment.id}
+                type="button"
+                onClick={() => onSetCallEnvironment(environment.id)}
+                className={`rounded-lg border px-3 py-3 text-left text-sm transition ${
+                  callEnvironment === environment.id
+                    ? "theme-choice-active theme-text-primary"
+                    : "theme-button-secondary"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold">{environment.label}</span>
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[11px] ${environment.accentClassName}`}
+                  >
+                    {environment.shortLabel}
+                  </span>
+                </div>
+                <p className="theme-text-muted mt-2 text-xs leading-5">
+                  {environment.helperText}
+                </p>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="mb-6">
@@ -132,6 +153,51 @@ export default function SettingsModal({
           {isSessionLocked && (
             <p className="mt-2 text-xs text-yellow-400">
               Stop the session to change recording mode
+            </p>
+          )}
+        </div>
+
+        <div className="theme-panel-soft mb-6 rounded-lg p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="theme-text-primary text-sm font-semibold">
+                Mouth movement tracking
+              </p>
+              <p className="theme-text-muted mt-1 text-xs">
+                Uses backend face landmarks during video sessions to estimate visible
+                articulation and mouth opening.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={mouthTrackingEnabled}
+              onClick={() => onSetMouthTrackingEnabled(!mouthTrackingEnabled)}
+              disabled={isSessionLocked}
+              className={`relative inline-flex h-7 w-14 items-center rounded-full border transition ${
+                mouthTrackingEnabled
+                  ? "theme-choice-active"
+                  : "theme-button-secondary"
+              } ${isSessionLocked ? "cursor-not-allowed opacity-50" : ""}`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
+                  mouthTrackingEnabled ? "translate-x-8" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
+
+          <p className="theme-text-muted mt-3 text-xs">
+            {mouthTrackingEnabled
+              ? "Enabled for new video sessions."
+              : "Disabled. Video sessions will skip backend mouth articulation analysis."}
+          </p>
+
+          {isSessionLocked && (
+            <p className="mt-2 text-xs text-yellow-400">
+              Stop the session to change mouth tracking
             </p>
           )}
         </div>
@@ -246,34 +312,6 @@ export default function SettingsModal({
           </div>
         </div>
 
-        <div className="theme-panel-soft mb-6 rounded-lg p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <p className="theme-text-primary text-sm font-semibold">Startup metrics</p>
-              <p className="theme-text-muted mt-1 text-xs">
-                Live timings for stream, signaling, WebRTC, and ASR startup.
-              </p>
-            </div>
-            <span className="theme-chip rounded border px-2 py-1 text-xs">
-              {formatMetricMs(startupMetrics.session_ready_ms)}
-            </span>
-          </div>
-
-          <div className="grid gap-2 sm:grid-cols-2">
-            {startupMetricLabels.map((metric) => (
-              <div
-                key={metric.key}
-                className="theme-panel rounded-lg px-3 py-2"
-              >
-                <p className="theme-text-dim text-xs uppercase tracking-wide">{metric.label}</p>
-                <p className="theme-text-primary mt-1 text-sm font-semibold">
-                  {formatMetricMs(startupMetrics[metric.key])}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
         <div className="mb-6">
           <h3 className="theme-text-primary mb-3 flex items-center gap-2 font-semibold">
             <svg className="theme-accent-text h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -300,7 +338,7 @@ export default function SettingsModal({
           </ul>
         </div>
 
-        {visionData && (
+        {hasVisionData && (
           <div className="theme-border mt-4 border-t pt-4">
             <h3 className="theme-text-primary mb-3 flex items-center gap-2 font-semibold">
               <svg className="theme-accent-text h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
