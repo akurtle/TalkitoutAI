@@ -26,6 +26,7 @@ type AlignedWord = {
 type Props = {
   transcripts: TranscriptItem[];
   isLive: boolean;
+  isConnecting?: boolean;
 };
 
 const TOPICS: SpeechTopic[] = [
@@ -295,7 +296,7 @@ const wordClassName = (status: WordMatchStatus) => {
   return "border-transparent text-[var(--txt2)]";
 };
 
-const FreeTalkSpeechPractice = ({ transcripts, isLive }: Props) => {
+const FreeTalkSpeechPractice = ({ transcripts, isLive, isConnecting = false }: Props) => {
   const [selectedTopicId, setSelectedTopicId] = useState<SpeechTopicId>("career");
   const [speech, setSpeech] = useState<PracticeSpeech>(() => chooseSpeech("career"));
   const [practiceTranscriptStart, setPracticeTranscriptStart] = useState(() => transcripts.length);
@@ -339,11 +340,19 @@ const FreeTalkSpeechPractice = ({ transcripts, isLive }: Props) => {
         </div>
         <span
           className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
-            isLive ? "border-emerald-500/30 text-emerald-300" : "border-[var(--border)] text-[var(--txt3)]"
+            isConnecting
+              ? "border-yellow-500/30 text-yellow-300"
+              : isLive
+                ? "border-emerald-500/30 text-emerald-300"
+                : "border-[var(--border)] text-[var(--txt3)]"
           }`}
         >
-          <span className={`h-2 w-2 rounded-full ${isLive ? "bg-emerald-500 animate-pulse" : "bg-[var(--txt3)]"}`} />
-          {isLive ? "Listening" : "Ready"}
+          {isConnecting ? (
+            <span className="h-2 w-2 animate-spin rounded-full border border-yellow-300 border-t-transparent" />
+          ) : (
+            <span className={`h-2 w-2 rounded-full ${isLive ? "bg-emerald-500 animate-pulse" : "bg-[var(--txt3)]"}`} />
+          )}
+          {isConnecting ? "Connecting…" : isLive ? "Listening" : "Ready"}
         </span>
       </div>
 

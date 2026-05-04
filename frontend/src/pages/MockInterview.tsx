@@ -216,6 +216,7 @@ function MockInterview() {
                 <FreeTalkSpeechPractice
                   transcripts={controller.transcripts}
                   isLive={isLive}
+                  isConnecting={isLive && controller.audioStatus !== "recording"}
                 />
               </div>
             )}
