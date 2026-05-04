@@ -4,9 +4,10 @@ type Props = {
   audioStatus: "idle" | "connecting" | "connected" | "recording" | "error";
   isAudioRunning: boolean;
   onToggle: () => void | Promise<void>;
+  onFullStop: () => void;
 };
 
-const MockInterviewAudioPanel = ({ audioStatus, isAudioRunning, onToggle }: Props) => {
+const MockInterviewAudioPanel = ({ audioStatus, isAudioRunning, onToggle, onFullStop }: Props) => {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -144,17 +145,32 @@ const MockInterviewAudioPanel = ({ audioStatus, isAudioRunning, onToggle }: Prop
         )}
 
         <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              void onToggle();
-            }}
-            className={`flex-1 rounded-lg px-6 py-3 font-semibold transition ${
-              isAudioRunning ? "theme-button-secondary" : "theme-button-primary"
-            }`}
-          >
-            {isAudioRunning ? "Stop Session" : "Start Session"}
-          </button>
+          {isAudioRunning ? (
+            <>
+              <button
+                type="button"
+                onClick={() => { void onToggle(); }}
+                className="flex-1 rounded-lg px-6 py-3 font-semibold transition theme-button-secondary"
+              >
+                Pause
+              </button>
+              <button
+                type="button"
+                onClick={onFullStop}
+                className="rounded-lg px-6 py-3 font-semibold transition theme-button-secondary text-red-300 hover:text-red-200"
+              >
+                Stop
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => { void onToggle(); }}
+              className="flex-1 rounded-lg px-6 py-3 font-semibold transition theme-button-primary"
+            >
+              Start Session
+            </button>
+          )}
         </div>
       </div>
     </div>

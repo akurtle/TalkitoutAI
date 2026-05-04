@@ -11,6 +11,7 @@ type QuestionGeneratorProps = {
   onInputChange?: (inputs: { role: string; company: string; callType: string }) => void;
   transcripts?: Array<{ text: string; isFinal: boolean; ts: number }>;
   startSignal?: number;
+  resetSignal?: number;
   onCurrentQuestionChange?: (question: GeneratedQuestion | null, index: number, total: number) => void;
 };
 
@@ -104,6 +105,7 @@ export default function QuestionGenerator({
   onInputChange,
   transcripts,
   startSignal,
+  resetSignal,
   onCurrentQuestionChange,
 }: QuestionGeneratorProps) {
   const endpoint = useMemo(() => `${apiBase}${endpointPath}`, [apiBase, endpointPath]);
@@ -127,6 +129,7 @@ export default function QuestionGenerator({
   const questionStartRef = useRef<number | null>(null);
   const transcriptStartIndexRef = useRef<number>(0);
   const startSignalRef = useRef<number | null>(null);
+  const startInterviewRef = useRef(startInterview);
   const contextPresets = useMemo(() => getPresetsForSession(sessionType), [sessionType]);
   const currentPreset =
     contextPresets.find((preset) => preset.value === callType) ?? contextPresets[0];
@@ -239,14 +242,24 @@ export default function QuestionGenerator({
     return () => clearInterval(timer);
   }, [interviewStatus]);
 
+  startInterviewRef.current = startInterview;
+
   useEffect(() => {
     if (startSignal === undefined || startSignal === null) return;
     if (startSignalRef.current === startSignal) return;
     startSignalRef.current = startSignal;
     if (interviewStatus !== "running") {
-      startInterview();
+      startInterviewRef.current();
     }
   }, [startSignal, interviewStatus]);
+
+  const prevResetSignalRef = useRef(resetSignal);
+  useEffect(() => {
+    if (prevResetSignalRef.current === resetSignal) return;
+    prevResetSignalRef.current = resetSignal;
+    resetInterviewState();
+    onCurrentQuestionChange?.(null, 0, 0);
+  }, [resetSignal, onCurrentQuestionChange]);
 
   const currentQuestion = questions[currentIndex];
   useEffect(() => {
