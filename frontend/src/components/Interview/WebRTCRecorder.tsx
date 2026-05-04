@@ -39,6 +39,7 @@ type Props = {
   onVisionData?: (data: unknown) => void;
   onRecordingReady?: (recording: SessionRecording | null) => void;
   onStreamReady?: (stream: MediaStream | null) => void;
+  onFullStop?: () => void;
 };
 
 declare global {
@@ -91,6 +92,7 @@ const WebRTCRecorder: React.FC<Props> = ({
   onVisionData,
   onRecordingReady,
   onStreamReady,
+  onFullStop,
 }) => {
   const stageShellRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -672,14 +674,23 @@ const WebRTCRecorder: React.FC<Props> = ({
               Start Session
             </button>
           ) : (
-            <button
-              onClick={() => {
-                void stopSession();
-              }}
-              className="theme-button-secondary flex-1 rounded-lg px-6 py-3 font-semibold"
-            >
-              Stop Session
-            </button>
+            <>
+              <button
+                onClick={() => { void stopSession(); }}
+                className="theme-button-secondary flex-1 rounded-lg px-6 py-3 font-semibold"
+              >
+                Pause
+              </button>
+              <button
+                onClick={() => {
+                  onFullStop?.();
+                  void stopSession();
+                }}
+                className="theme-button-secondary rounded-lg px-6 py-3 font-semibold text-red-300 hover:text-red-200"
+              >
+                Stop
+              </button>
+            </>
           )}
         </div>
 

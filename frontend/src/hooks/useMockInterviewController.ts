@@ -55,8 +55,11 @@ export const useMockInterviewController = () => {
   const [callEnvironment, setCallEnvironment] = useState<CallEnvironmentId>(readStoredCallEnvironment);
   const [activeQuestion, setActiveQuestion] = useState<ActiveQuestion | null>(null);
 
+  const [sessionResetSignal, setSessionResetSignal] = useState(0);
+
   const prevConnectionStatusRef = useRef(connectionStatus);
   const prevAudioRunningRef = useRef(false);
+  const isFullStopPendingRef = useRef(false);
   const sessionStartedAtRef = useRef<number | null>(null);
   const persistedSessionKeyRef = useRef<string>("");
   const sessionRecordingRef = useRef<SessionRecording | null>(null);
@@ -359,6 +362,31 @@ export const useMockInterviewController = () => {
     setQuestionAnswers([]);
   }, []);
 
+  const handleFullReset = useCallback(() => {
+    setTranscripts([]);
+    setVisionFrames([]);
+    setQuestionAnswers([]);
+    setActiveQuestion(null);
+    setSessionSaveStatus("idle");
+    setSessionSaveMessage(null);
+    setSharedMediaStream(null);
+    sessionStartedAtRef.current = null;
+    persistedSessionKeyRef.current = "";
+    sessionRecordingRef.current = null;
+    markSessionStart();
+    setSessionResetSignal((n) => n + 1);
+  }, [markSessionStart]);
+
+  const handleAudioFullStop = useCallback(() => {
+    isFullStopPendingRef.current = true;
+    stopAudio();
+    handleFullReset();
+  }, [stopAudio, handleFullReset]);
+
+  const handleWebRTCFullStopPending = useCallback(() => {
+    isFullStopPendingRef.current = true;
+  }, []);
+
   const handleCurrentQuestionChange = useCallback(
     (question: GeneratedQuestion | null, index: number, total: number) => {
       if (!question) {
@@ -468,7 +496,11 @@ export const useMockInterviewController = () => {
     }
 
     if (prevAudioRunningRef.current && !isAudioRunning) {
-      void persistSession();
+      if (isFullStopPendingRef.current) {
+        isFullStopPendingRef.current = false;
+      } else {
+        void persistSession();
+      }
     }
 
     prevAudioRunningRef.current = isAudioRunning;
@@ -492,12 +524,17 @@ export const useMockInterviewController = () => {
           connectionStatus === "disconnected" ||
           connectionStatus === "error")
       ) {
-        void persistSession();
+        if (isFullStopPendingRef.current) {
+          isFullStopPendingRef.current = false;
+          handleFullReset();
+        } else {
+          void persistSession();
+        }
       }
     }
 
     prevConnectionStatusRef.current = connectionStatus;
-  }, [beginSession, connectionStatus, persistSession, recordMode]);
+  }, [beginSession, connectionStatus, handleFullReset, persistSession, recordMode]);
 
   return {
     activeQuestion,
@@ -508,6 +545,7 @@ export const useMockInterviewController = () => {
     endpoints,
     feedbackError,
     generatedQuestions,
+    handleAudioFullStop,
     handleAudioInputSelect,
     handleAudioToggle,
     handleCurrentQuestionChange,
@@ -528,6 +566,8 @@ export const useMockInterviewController = () => {
     questionAnswers,
     recordMode,
     refreshMediaDevices,
+    handleWebRTCFullStopPending,
+    sessionResetSignal,
     sessionSaveMessage,
     sessionSaveStatus,
     sessionType,

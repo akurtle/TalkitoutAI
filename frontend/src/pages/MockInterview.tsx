@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import FeedbackPanel from "../components/Interview/FeedbackPanel";
 import FreeTalkSpeechPractice from "../components/Interview/FreeTalkSpeechPractice";
@@ -100,6 +100,16 @@ function MockInterview() {
     };
   }, [isLive, elapsedSeconds]);
 
+  const handleAudioFullStop = useCallback(() => {
+    controller.handleAudioFullStop();
+    setElapsedSeconds(0);
+  }, [controller]);
+
+  const handleWebRTCFullStop = useCallback(() => {
+    controller.handleWebRTCFullStopPending();
+    setElapsedSeconds(0);
+  }, [controller]);
+
   const speechMetrics = useLiveSpeechMetrics(controller.transcripts, isLive);
 
   const coachMessage = isLive
@@ -181,6 +191,7 @@ function MockInterview() {
                 audioStatus={controller.audioStatus}
                 isAudioRunning={controller.isAudioRunning}
                 onToggle={controller.handleAudioToggle}
+                onFullStop={handleAudioFullStop}
               />
             ) : (
               <WebRTCRecorder
@@ -196,6 +207,7 @@ function MockInterview() {
                 onVisionData={controller.handleVisionData}
                 onRecordingReady={controller.handleRecordingReady}
                 onStreamReady={controller.setSharedMediaStream}
+                onFullStop={handleWebRTCFullStop}
               />
             )}
 
@@ -326,6 +338,7 @@ function MockInterview() {
                   onInputChange={controller.setQuestionContext}
                   transcripts={controller.transcripts}
                   startSignal={controller.interviewStartSignal}
+                  resetSignal={controller.sessionResetSignal}
                   onCurrentQuestionChange={controller.handleCurrentQuestionChange}
                 />
               </div>
