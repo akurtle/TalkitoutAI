@@ -1,6 +1,8 @@
 import ThemePicker from "../Settings/ThemePicker";
+import { AUDIENCE_STYLE_OPTIONS } from "./audienceStyles";
 import { CALL_ENVIRONMENT_OPTIONS } from "./callEnvironments";
 import type {
+  AudienceStyleId,
   CallEnvironmentId,
   MediaDeviceCatalog,
   MediaDeviceSelection,
@@ -12,7 +14,9 @@ type SettingsModalProps = {
   onClose: () => void;
   recordMode: RecordMode;
   callEnvironment: CallEnvironmentId;
+  audienceStyle: AudienceStyleId;
   onSetCallEnvironment: (environment: CallEnvironmentId) => void;
+  onSetAudienceStyle: (style: AudienceStyleId) => void;
   setRecordMode: (mode: RecordMode) => void;
   mediaDevices: MediaDeviceCatalog;
   mediaSelection: MediaDeviceSelection;
@@ -30,7 +34,9 @@ export default function SettingsModal({
   onClose,
   recordMode,
   callEnvironment,
+  audienceStyle,
   onSetCallEnvironment,
+  onSetAudienceStyle,
   setRecordMode,
   mediaDevices,
   mediaSelection,
@@ -95,6 +101,38 @@ export default function SettingsModal({
             ))}
           </div>
         </div>
+
+        {(callEnvironment === "audience" || callEnvironment === "webinar") && (
+          <div className="mb-6">
+            <p className="theme-text-muted mb-2 text-sm">Audience look</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {AUDIENCE_STYLE_OPTIONS.map((style) => (
+                <button
+                  key={style.id}
+                  type="button"
+                  onClick={() => onSetAudienceStyle(style.id)}
+                  className={`rounded-lg border px-3 py-3 text-left text-sm transition ${
+                    audienceStyle === style.id
+                      ? "theme-choice-active theme-text-primary"
+                      : "theme-button-secondary"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold">{style.label}</span>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[11px] ${style.accentClassName}`}
+                    >
+                      {style.shortLabel}
+                    </span>
+                  </div>
+                  <p className="theme-text-muted mt-2 text-xs leading-5">
+                    {style.helperText}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mb-6">
           <p className="theme-text-muted mb-2 text-sm">Recording mode</p>

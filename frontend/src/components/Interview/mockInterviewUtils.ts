@@ -1,5 +1,7 @@
+import { isAudienceStyleId } from "./audienceStyles";
 import { isCallEnvironmentId } from "./callEnvironments";
 import type {
+  AudienceStyleId,
   CallEnvironmentId,
   MediaDeviceCatalog,
   MediaDeviceSelection,
@@ -8,6 +10,7 @@ import type {
 
 const MEDIA_SELECTION_STORAGE_KEY = "interview-ai:selected-media-devices";
 const CALL_ENVIRONMENT_STORAGE_KEY = "interview-ai:call-environment";
+const AUDIENCE_STYLE_STORAGE_KEY = "interview-ai:audience-style";
 
 const parseTimestampSeconds = (value: unknown): number => {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -82,12 +85,25 @@ export const readStoredCallEnvironment = (): CallEnvironmentId => {
   return isCallEnvironmentId(raw) ? raw : "teams";
 };
 
+export const readStoredAudienceStyle = (): AudienceStyleId => {
+  if (typeof window === "undefined") {
+    return "webinar-grid";
+  }
+
+  const raw = window.localStorage.getItem(AUDIENCE_STYLE_STORAGE_KEY);
+  return isAudienceStyleId(raw) ? raw : "webinar-grid";
+};
+
 export const persistMediaSelection = (selection: MediaDeviceSelection) => {
   window.localStorage.setItem(MEDIA_SELECTION_STORAGE_KEY, JSON.stringify(selection));
 };
 
 export const persistCallEnvironment = (environment: CallEnvironmentId) => {
   window.localStorage.setItem(CALL_ENVIRONMENT_STORAGE_KEY, environment);
+};
+
+export const persistAudienceStyle = (style: AudienceStyleId) => {
+  window.localStorage.setItem(AUDIENCE_STYLE_STORAGE_KEY, style);
 };
 
 export const buildDeviceLabel = (device: MediaDeviceInfo, index: number) => {

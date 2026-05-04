@@ -3,11 +3,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 type Props = {
   audioStatus: "idle" | "connecting" | "connected" | "recording" | "error";
   isAudioRunning: boolean;
+  isPaused: boolean;
   onToggle: () => void | Promise<void>;
   onFullStop: () => void;
 };
 
-const MockInterviewAudioPanel = ({ audioStatus, isAudioRunning, onToggle, onFullStop }: Props) => {
+const MockInterviewAudioPanel = ({
+  audioStatus,
+  isAudioRunning,
+  isPaused,
+  onToggle,
+  onFullStop,
+}: Props) => {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -28,6 +35,13 @@ const MockInterviewAudioPanel = ({ audioStatus, isAudioRunning, onToggle, onFull
   }, []);
 
   const statusMeta = useMemo(() => {
+    if (isPaused) {
+      return {
+        label: "Session paused",
+        dotClassName: "bg-yellow-500",
+      };
+    }
+
     if (audioStatus === "recording") {
       return {
         label: "Recording...",
@@ -53,7 +67,15 @@ const MockInterviewAudioPanel = ({ audioStatus, isAudioRunning, onToggle, onFull
       label: "Ready to start",
       dotClassName: "bg-gray-600",
     };
-  }, [audioStatus]);
+  }, [audioStatus, isPaused]);
+
+  const bodyText = isPaused
+    ? "Paused. Resume when you are ready."
+    : audioStatus === "recording"
+      ? "Listening for your response..."
+      : audioStatus === "connecting" || audioStatus === "connected"
+        ? "Hold on - setting up microphone..."
+        : "Ready when you are";
 
   const toggleFullscreen = async () => {
     if (!supportsFullscreen || !panelRef.current) {
@@ -125,13 +147,7 @@ const MockInterviewAudioPanel = ({ audioStatus, isAudioRunning, onToggle, onFull
             )}
           </div>
           <p className="theme-text-primary text-lg font-semibold">Live Audio Transcription</p>
-          <p className="theme-text-muted mt-2 text-sm">
-            {audioStatus === "recording"
-              ? "Listening for your response..."
-              : audioStatus === "connecting" || audioStatus === "connected"
-                ? "Hold on — setting up microphone..."
-                : "Ready when you are"}
-          </p>
+          <p className="theme-text-muted mt-2 text-sm">{bodyText}</p>
         </div>
       </div>
 
@@ -139,25 +155,30 @@ const MockInterviewAudioPanel = ({ audioStatus, isAudioRunning, onToggle, onFull
         {audioStatus === "error" && (
           <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3">
             <p className="text-sm text-red-300">
-              Audio transcription failed. Check microphone access and browser speech recognition support.
+              Audio transcription failed. Check microphone access and browser speech recognition
+              support.
             </p>
           </div>
         )}
 
         <div className="flex gap-3">
-          {isAudioRunning ? (
+          {isAudioRunning || isPaused ? (
             <>
               <button
                 type="button"
-                onClick={() => { void onToggle(); }}
-                className="flex-1 rounded-lg px-6 py-3 font-semibold transition theme-button-secondary"
+                onClick={() => {
+                  void onToggle();
+                }}
+                className={`flex-1 rounded-lg px-6 py-3 font-semibold transition ${
+                  isPaused ? "theme-button-primary" : "theme-button-secondary"
+                }`}
               >
-                Pause
+                {isPaused ? "Resume" : "Pause"}
               </button>
               <button
                 type="button"
                 onClick={onFullStop}
-                className="rounded-lg px-6 py-3 font-semibold transition theme-button-secondary text-red-300 hover:text-red-200"
+                className="theme-button-secondary rounded-lg px-6 py-3 font-semibold text-red-300 transition hover:text-red-200"
               >
                 Stop
               </button>
@@ -166,16 +187,18 @@ const MockInterviewAudioPanel = ({ audioStatus, isAudioRunning, onToggle, onFull
             <button
               type="button"
               disabled
-              className="flex-1 flex items-center justify-center gap-2 rounded-lg px-6 py-3 font-semibold opacity-60 cursor-not-allowed theme-button-primary"
+              className="theme-button-primary flex flex-1 cursor-not-allowed items-center justify-center gap-2 rounded-lg px-6 py-3 font-semibold opacity-60"
             >
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              Connecting…
+              Connecting...
             </button>
           ) : (
             <button
               type="button"
-              onClick={() => { void onToggle(); }}
-              className="flex-1 rounded-lg px-6 py-3 font-semibold transition theme-button-primary"
+              onClick={() => {
+                void onToggle();
+              }}
+              className="theme-button-primary flex-1 rounded-lg px-6 py-3 font-semibold transition"
             >
               Start Session
             </button>

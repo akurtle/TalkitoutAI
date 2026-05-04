@@ -3,7 +3,9 @@ import { useAuth } from "../auth";
 import { useWhisperWS } from "../components/Interview/useWhisper";
 import type {
   ActiveQuestion,
+  AudienceStyleId,
   CallEnvironmentId,
+  ConnectionStatus,
   GeneratedQuestion,
   MediaDeviceCatalog,
   MediaDeviceSelection,
@@ -18,8 +20,10 @@ import {
   buildDeviceLabel,
   createEmptyMediaDeviceCatalog,
   normalizeVisionFrame,
+  persistAudienceStyle,
   persistCallEnvironment,
   persistMediaSelection,
+  readStoredAudienceStyle,
   readStoredCallEnvironment,
   readStoredMediaSelection,
 } from "../components/Interview/mockInterviewUtils";
@@ -33,7 +37,7 @@ type SessionSaveStatus = "idle" | "saving" | "saved" | "error";
 
 export const useMockInterviewController = () => {
   const [recordMode, setRecordMode] = useState<RecordMode>("both");
-  const [connectionStatus, setConnectionStatus] = useState<string>("idle");
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("idle");
   const [transcripts, setTranscripts] = useState<TranscriptItem[]>([]);
   const [interviewStartSignal, setInterviewStartSignal] = useState(0);
   const [visionFrames, setVisionFrames] = useState<VisionFrame[]>([]);
@@ -53,12 +57,15 @@ export const useMockInterviewController = () => {
   const [mediaDeviceMessage, setMediaDeviceMessage] = useState<string | null>(null);
   const [mediaDeviceLabelsAvailable, setMediaDeviceLabelsAvailable] = useState(false);
   const [callEnvironment, setCallEnvironment] = useState<CallEnvironmentId>(readStoredCallEnvironment);
+  const [audienceStyle, setAudienceStyle] = useState<AudienceStyleId>(readStoredAudienceStyle);
+  const [isAudioPaused, setIsAudioPaused] = useState(false);
   const [activeQuestion, setActiveQuestion] = useState<ActiveQuestion | null>(null);
 
   const [sessionResetSignal, setSessionResetSignal] = useState(0);
 
   const prevConnectionStatusRef = useRef(connectionStatus);
   const prevAudioRunningRef = useRef(false);
+  const isAudioPausedRef = useRef(false);
   const isFullStopPendingRef = useRef(false);
   const sessionStartedAtRef = useRef<number | null>(null);
   const persistedSessionKeyRef = useRef<string>("");
@@ -241,11 +248,16 @@ export const useMockInterviewController = () => {
 
   const handleAudioToggle = useCallback(async () => {
     if (isAudioRunning) {
+      setIsAudioPaused(true);
       stopAudio();
       return;
     }
 
-    beginSession();
+    if (!isAudioPausedRef.current) {
+      beginSession();
+    }
+
+    setIsAudioPaused(false);
     await startAudio(undefined, {
       audioDeviceId: mediaSelection.audioInputId,
       onPreferredDeviceUnavailable: () => {
@@ -370,6 +382,7 @@ export const useMockInterviewController = () => {
     setSessionSaveStatus("idle");
     setSessionSaveMessage(null);
     setSharedMediaStream(null);
+    setIsAudioPaused(false);
     sessionStartedAtRef.current = null;
     persistedSessionKeyRef.current = "";
     sessionRecordingRef.current = null;
@@ -379,11 +392,12 @@ export const useMockInterviewController = () => {
 
   const handleAudioFullStop = useCallback(() => {
     isFullStopPendingRef.current = true;
+    setIsAudioPaused(false);
     stopAudio();
     handleFullReset();
   }, [stopAudio, handleFullReset]);
 
-  const handleWebRTCFullStopPending = useCallback(() => {
+  const handleLocalMediaFullStopPending = useCallback(() => {
     isFullStopPendingRef.current = true;
   }, []);
 
@@ -415,7 +429,10 @@ export const useMockInterviewController = () => {
     sessionRecordingRef.current = recording;
   }, []);
 
-  const isSessionLocked = connectionStatus === "connected" || connectionStatus === "connecting";
+  const isSessionLocked =
+    connectionStatus === "connected" ||
+    connectionStatus === "connecting" ||
+    connectionStatus === "paused";
 
   useEffect(() => {
     mediaSelectionRef.current = mediaSelection;
@@ -425,6 +442,14 @@ export const useMockInterviewController = () => {
   useEffect(() => {
     persistCallEnvironment(callEnvironment);
   }, [callEnvironment]);
+
+  useEffect(() => {
+    persistAudienceStyle(audienceStyle);
+  }, [audienceStyle]);
+
+  useEffect(() => {
+    isAudioPausedRef.current = isAudioPaused;
+  }, [isAudioPaused]);
 
   useEffect(() => {
     if (!navigator.mediaDevices?.enumerateDevices) {
@@ -449,8 +474,10 @@ export const useMockInterviewController = () => {
   useEffect(() => {
     if (recordMode !== "audio") return;
 
-    const mapped =
-      audioStatus === "recording"
+    const mapped: ConnectionStatus =
+      isAudioPaused
+        ? "paused"
+        : audioStatus === "recording"
         ? "connected"
         : audioStatus === "connecting" || audioStatus === "connected"
           ? "connecting"
@@ -459,7 +486,7 @@ export const useMockInterviewController = () => {
             : "idle";
 
     setConnectionStatus(mapped);
-  }, [audioStatus, recordMode]);
+  }, [audioStatus, isAudioPaused, recordMode]);
 
   useEffect(() => {
     if (recordMode === "audio") return;
@@ -496,6 +523,11 @@ export const useMockInterviewController = () => {
     }
 
     if (prevAudioRunningRef.current && !isAudioRunning) {
+      if (isAudioPausedRef.current) {
+        prevAudioRunningRef.current = isAudioRunning;
+        return;
+      }
+
       if (isFullStopPendingRef.current) {
         isFullStopPendingRef.current = false;
       } else {
@@ -519,7 +551,7 @@ export const useMockInterviewController = () => {
       }
 
       if (
-        (prevStatus === "connected" || prevStatus === "connecting") &&
+        (prevStatus === "connected" || prevStatus === "connecting" || prevStatus === "paused") &&
         (connectionStatus === "idle" ||
           connectionStatus === "disconnected" ||
           connectionStatus === "error")
@@ -539,6 +571,7 @@ export const useMockInterviewController = () => {
   return {
     activeQuestion,
     apiBase,
+    audienceStyle,
     audioStatus,
     callEnvironment,
     connectionStatus,
@@ -557,6 +590,7 @@ export const useMockInterviewController = () => {
     handleVisionData,
     interviewStartSignal,
     isAudioRunning,
+    isAudioPaused,
     isRefreshingMediaDevices,
     isSessionLocked,
     mediaDeviceLabelsAvailable,
@@ -566,12 +600,13 @@ export const useMockInterviewController = () => {
     questionAnswers,
     recordMode,
     refreshMediaDevices,
-    handleWebRTCFullStopPending,
+    handleLocalMediaFullStopPending,
     sessionResetSignal,
     sessionSaveMessage,
     sessionSaveStatus,
     sessionType,
     setCallEnvironment,
+    setAudienceStyle,
     setConnectionStatus,
     setQuestionAnswers,
     setQuestionContext,

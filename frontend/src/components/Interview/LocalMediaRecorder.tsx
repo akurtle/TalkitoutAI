@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { CALL_ENVIRONMENT_PRESETS } from "./callEnvironments";
 import type {
+  AudienceStyleId,
   CallEnvironmentId,
   ConnectionStatus,
   RecordMode,
@@ -13,7 +14,7 @@ import {
   renderMeetScene,
   renderPlatformScene,
   renderTeamsScene,
-} from "./WebRTCRecorderSceneHelpers";
+} from "./LocalMediaRecorderSceneHelpers";
 
 type DetectedFace = {
   boundingBox?: {
@@ -37,6 +38,7 @@ type Props = {
   mode?: RecordMode;
   sessionType?: SessionType;
   callEnvironment?: CallEnvironmentId;
+  audienceStyle?: AudienceStyleId;
   selectedAudioInputId?: string;
   selectedVideoInputId?: string;
   onPreferredDevicesUnavailable?: (kinds: Array<"audioinput" | "videoinput">) => void;
@@ -193,10 +195,11 @@ const calculateMouthMovementDelta = (
   return Math.max(imageDelta, opennessDelta);
 };
 
-const WebRTCRecorder: React.FC<Props> = ({
+const LocalMediaRecorder: React.FC<Props> = ({
   mode = "both",
   sessionType = "interview",
   callEnvironment = "teams",
+  audienceStyle = "webinar-grid",
   selectedAudioInputId,
   selectedVideoInputId,
   onPreferredDevicesUnavailable,
@@ -350,6 +353,20 @@ const WebRTCRecorder: React.FC<Props> = ({
     await recordingStopPromiseRef.current;
   };
 
+  const pauseLocalRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder?.state === "recording") {
+      recorder.pause();
+    }
+  };
+
+  const resumeLocalRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder?.state === "paused") {
+      recorder.resume();
+    }
+  };
+
   const getFaceDetector = () => {
     if (faceDetectorRef.current) {
       return faceDetectorRef.current;
@@ -490,6 +507,16 @@ const WebRTCRecorder: React.FC<Props> = ({
     }, 800);
   };
 
+  const stopVisionSampling = () => {
+    if (visionIntervalRef.current) {
+      window.clearInterval(visionIntervalRef.current);
+      visionIntervalRef.current = null;
+    }
+    visionEnabledRef.current = false;
+    visionBusyRef.current = false;
+    previousMouthSampleRef.current = null;
+  };
+
   const startSession = async () => {
     setError(null);
     updateStatus("connecting");
@@ -549,6 +576,38 @@ const WebRTCRecorder: React.FC<Props> = ({
     }
   };
 
+  const pauseSession = () => {
+    if (status !== "connected") {
+      return;
+    }
+
+    pauseLocalRecording();
+    stopVisionSampling();
+    streamRef.current?.getTracks().forEach((track) => {
+      track.enabled = false;
+    });
+    updateStatus("paused");
+  };
+
+  const resumeSession = async () => {
+    if (status !== "paused" || !streamRef.current) {
+      return;
+    }
+
+    streamRef.current.getTracks().forEach((track) => {
+      track.enabled = true;
+    });
+
+    if (videoRef.current && (mode === "video" || mode === "both")) {
+      videoRef.current.srcObject = streamRef.current;
+      await videoRef.current.play().catch(() => {});
+    }
+
+    resumeLocalRecording();
+    startVisionSampling();
+    updateStatus("connected");
+  };
+
   const stopSession = async () => {
     if (isStoppingRef.current) {
       return;
@@ -567,13 +626,7 @@ const WebRTCRecorder: React.FC<Props> = ({
       videoRef.current.srcObject = null;
     }
 
-    if (visionIntervalRef.current) {
-      window.clearInterval(visionIntervalRef.current);
-      visionIntervalRef.current = null;
-    }
-    visionEnabledRef.current = false;
-    visionBusyRef.current = false;
-    previousMouthSampleRef.current = null;
+    stopVisionSampling();
 
     updateStatus("idle");
     isStoppingRef.current = false;
@@ -649,6 +702,8 @@ const WebRTCRecorder: React.FC<Props> = ({
                 ? "theme-status-dot-active animate-pulse"
                 : status === "connecting"
                   ? "theme-status-dot-warn animate-pulse"
+                  : status === "paused"
+                    ? "theme-status-dot-warn"
                   : "theme-status-dot"
             }`}
           />
@@ -657,6 +712,7 @@ const WebRTCRecorder: React.FC<Props> = ({
               {status === "idle" && "Ready to start"}
               {status === "connecting" && "Connecting..."}
               {status === "connected" && "Live session"}
+              {status === "paused" && "Session paused"}
               {status === "disconnected" && "Disconnected"}
               {status === "error" && "Error"}
             </p>
@@ -722,7 +778,7 @@ const WebRTCRecorder: React.FC<Props> = ({
               />
 
               {environment.stageLayout === "audience"
-                ? renderAudienceScene(status, environment.label, sessionType)
+                ? renderAudienceScene(status, environment.label, sessionType, audienceStyle)
                 : renderPlatformScene(
                     status,
                     environment.label,
@@ -812,10 +868,49 @@ const WebRTCRecorder: React.FC<Props> = ({
             >
               Start Session
             </button>
+          ) : status === "connecting" ? (
+            <>
+              <button
+                disabled
+                className="theme-button-primary flex flex-1 cursor-wait items-center justify-center gap-2 rounded-lg px-6 py-3 font-semibold opacity-70"
+              >
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                Connecting...
+              </button>
+              <button
+                onClick={() => {
+                  onFullStop?.();
+                  void stopSession();
+                }}
+                className="theme-button-secondary rounded-lg px-6 py-3 font-semibold text-red-300 hover:text-red-200"
+              >
+                Stop
+              </button>
+            </>
+          ) : status === "paused" ? (
+            <>
+              <button
+                onClick={() => {
+                  void resumeSession();
+                }}
+                className="theme-button-primary flex-1 rounded-lg px-6 py-3 font-semibold"
+              >
+                Resume
+              </button>
+              <button
+                onClick={() => {
+                  onFullStop?.();
+                  void stopSession();
+                }}
+                className="theme-button-secondary rounded-lg px-6 py-3 font-semibold text-red-300 hover:text-red-200"
+              >
+                Stop
+              </button>
+            </>
           ) : (
             <>
               <button
-                onClick={() => { void stopSession(); }}
+                onClick={pauseSession}
                 className="theme-button-secondary flex-1 rounded-lg px-6 py-3 font-semibold"
               >
                 Pause
@@ -838,4 +933,4 @@ const WebRTCRecorder: React.FC<Props> = ({
   );
 };
 
-export default WebRTCRecorder;
+export default LocalMediaRecorder;
