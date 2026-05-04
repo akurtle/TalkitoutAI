@@ -28,6 +28,11 @@ type FaceDetectorLike = {
   detect: (input: CanvasImageSource) => Promise<DetectedFace[]>;
 };
 
+type MouthSample = {
+  openness: number;
+  signature: number[];
+};
+
 type Props = {
   mode?: RecordMode;
   sessionType?: SessionType;
@@ -81,6 +86,113 @@ const buildMediaConstraints = ({
       : false,
 });
 
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const toFiniteNumber = (value: number | undefined, fallback = 0) =>
+  typeof value === "number" && Number.isFinite(value) ? value : fallback;
+
+// FaceDetector only exposes a face box in most browsers, so mouth metrics use a lower-face crop.
+const sampleMouthRegion = (
+  ctx: CanvasRenderingContext2D,
+  face: NonNullable<DetectedFace["boundingBox"]>,
+  canvasWidth: number,
+  canvasHeight: number
+): MouthSample | null => {
+  const faceX = toFiniteNumber(face.x);
+  const faceY = toFiniteNumber(face.y);
+  const faceWidth = toFiniteNumber(face.width);
+  const faceHeight = toFiniteNumber(face.height);
+
+  if (faceWidth < 60 || faceHeight < 60) {
+    return null;
+  }
+
+  const mouthRect = {
+    x: Math.round(clamp(faceX + faceWidth * 0.26, 0, canvasWidth - 1)),
+    y: Math.round(clamp(faceY + faceHeight * 0.62, 0, canvasHeight - 1)),
+    width: Math.round(clamp(faceWidth * 0.48, 1, canvasWidth)),
+    height: Math.round(clamp(faceHeight * 0.2, 1, canvasHeight)),
+  };
+
+  mouthRect.width = Math.min(mouthRect.width, canvasWidth - mouthRect.x);
+  mouthRect.height = Math.min(mouthRect.height, canvasHeight - mouthRect.y);
+
+  if (mouthRect.width < 12 || mouthRect.height < 8) {
+    return null;
+  }
+
+  const data = ctx.getImageData(
+    mouthRect.x,
+    mouthRect.y,
+    mouthRect.width,
+    mouthRect.height
+  ).data;
+  const pixelStride = Math.max(1, Math.floor(Math.min(mouthRect.width, mouthRect.height) / 18));
+  const grayValues: number[] = [];
+
+  for (let y = 0; y < mouthRect.height; y += pixelStride) {
+    for (let x = 0; x < mouthRect.width; x += pixelStride) {
+      const index = (y * mouthRect.width + x) * 4;
+      const gray = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+      grayValues.push(gray);
+    }
+  }
+
+  if (grayValues.length === 0) {
+    return null;
+  }
+
+  const meanGray = grayValues.reduce((total, gray) => total + gray, 0) / grayValues.length;
+  const variance =
+    grayValues.reduce((total, gray) => total + (gray - meanGray) ** 2, 0) / grayValues.length;
+  const stdGray = Math.sqrt(variance);
+  const darkThreshold = Math.max(35, meanGray - Math.max(18, stdGray * 0.65));
+  const darkShare =
+    grayValues.filter((gray) => gray < darkThreshold).length / Math.max(1, grayValues.length);
+  const openness = clamp((darkShare - 0.03) / 0.45, 0, 1);
+  const signature: number[] = [];
+  const gridColumns = 12;
+  const gridRows = 6;
+
+  for (let row = 0; row < gridRows; row += 1) {
+    for (let column = 0; column < gridColumns; column += 1) {
+      const x = clamp(
+        Math.round((column + 0.5) * (mouthRect.width / gridColumns)),
+        0,
+        mouthRect.width - 1
+      );
+      const y = clamp(
+        Math.round((row + 0.5) * (mouthRect.height / gridRows)),
+        0,
+        mouthRect.height - 1
+      );
+      const index = (y * mouthRect.width + x) * 4;
+      const gray = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+      signature.push(gray / 255);
+    }
+  }
+
+  return { openness, signature };
+};
+
+const calculateMouthMovementDelta = (
+  current: MouthSample,
+  previous: MouthSample | null
+): number | null => {
+  if (!previous || previous.signature.length !== current.signature.length) {
+    return null;
+  }
+
+  const imageDelta =
+    current.signature.reduce(
+      (total, value, index) => total + Math.abs(value - previous.signature[index]),
+      0
+    ) / current.signature.length;
+  const opennessDelta = Math.abs(current.openness - previous.openness);
+
+  return Math.max(imageDelta, opennessDelta);
+};
+
 const WebRTCRecorder: React.FC<Props> = ({
   mode = "both",
   sessionType = "interview",
@@ -102,6 +214,7 @@ const WebRTCRecorder: React.FC<Props> = ({
   const visionBusyRef = useRef(false);
   const visionEnabledRef = useRef(false);
   const faceDetectorRef = useRef<FaceDetectorLike | null>(null);
+  const previousMouthSampleRef = useRef<MouthSample | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const recordingMimeTypeRef = useRef<string>("");
@@ -274,6 +387,7 @@ const WebRTCRecorder: React.FC<Props> = ({
     }
 
     visionEnabledRef.current = true;
+    previousMouthSampleRef.current = null;
     if (visionIntervalRef.current) {
       window.clearInterval(visionIntervalRef.current);
     }
@@ -315,6 +429,9 @@ const WebRTCRecorder: React.FC<Props> = ({
         let headYaw: number | null = null;
         let headPitch: number | null = null;
         let lookingAtCamera = false;
+        let mouthOpenRatio: number | null = null;
+        let mouthMovementDelta: number | null = null;
+        let articulationActive: boolean | null = null;
 
         if (primaryFace) {
           const faceCenterX = ((primaryFace.x ?? 0) + (primaryFace.width ?? 0) / 2) / width;
@@ -325,6 +442,24 @@ const WebRTCRecorder: React.FC<Props> = ({
           headYaw = Math.max(-30, Math.min(30, horizontalOffset * 120));
           headPitch = Math.max(-20, Math.min(20, verticalOffset * 90));
           lookingAtCamera = Math.abs(horizontalOffset) <= 0.1 && Math.abs(verticalOffset) <= 0.12;
+
+          const mouthSample = sampleMouthRegion(ctx, primaryFace, width, height);
+          if (mouthSample) {
+            mouthOpenRatio = mouthSample.openness;
+            mouthMovementDelta = calculateMouthMovementDelta(
+              mouthSample,
+              previousMouthSampleRef.current
+            );
+            articulationActive =
+              mouthMovementDelta === null
+                ? null
+                : mouthMovementDelta >= 0.018 || mouthOpenRatio >= 0.18;
+            previousMouthSampleRef.current = mouthSample;
+          } else {
+            previousMouthSampleRef.current = null;
+          }
+        } else {
+          previousMouthSampleRef.current = null;
         }
 
         onVisionData?.({
@@ -336,6 +471,9 @@ const WebRTCRecorder: React.FC<Props> = ({
             smile_prob: null,
             head_yaw: headYaw,
             head_pitch: headPitch,
+            mouth_open_ratio: mouthOpenRatio,
+            mouth_movement_delta: mouthMovementDelta,
+            articulation_active: articulationActive,
           },
           source: "client",
         });
@@ -435,6 +573,7 @@ const WebRTCRecorder: React.FC<Props> = ({
     }
     visionEnabledRef.current = false;
     visionBusyRef.current = false;
+    previousMouthSampleRef.current = null;
 
     updateStatus("idle");
     isStoppingRef.current = false;

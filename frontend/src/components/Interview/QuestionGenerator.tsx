@@ -129,6 +129,21 @@ export default function QuestionGenerator({
   const questionStartRef = useRef<number | null>(null);
   const transcriptStartIndexRef = useRef<number>(0);
   const startSignalRef = useRef<number | null>(null);
+
+  const startInterview = () => {
+    if (questions.length === 0) {
+      setError("Generate questions before starting the interview.");
+      return;
+    }
+    setError(null);
+    setInterviewStatus("running");
+    setCurrentIndex(0);
+    setAnswers([]);
+    sessionStartRef.current = Date.now();
+    questionStartRef.current = Date.now();
+    transcriptStartIndexRef.current = (transcripts ?? []).length;
+  };
+
   const startInterviewRef = useRef(startInterview);
   const contextPresets = useMemo(() => getPresetsForSession(sessionType), [sessionType]);
   const currentPreset =
@@ -375,20 +390,6 @@ export default function QuestionGenerator({
       }
       return undefined;
     }
-  };
-
-  const startInterview = () => {
-    if (questions.length === 0) {
-      setError("Generate questions before starting the interview.");
-      return;
-    }
-    setError(null);
-    setInterviewStatus("running");
-    setCurrentIndex(0);
-    setAnswers([]);
-    sessionStartRef.current = Date.now();
-    questionStartRef.current = Date.now();
-    transcriptStartIndexRef.current = (transcripts ?? []).length;
   };
 
   const goToNextQuestion = async () => {
