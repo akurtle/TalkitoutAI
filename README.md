@@ -1,6 +1,6 @@
-# InterviewAI
+# TalkitoutAI
 
-InterviewAI is a full-stack practice platform for resume review and mock interview coaching. The repository combines:
+TalkitoutAI is a full-stack practice platform for resume review and mock interview coaching. The repository combines:
 
 - A `FastAPI` backend for resume parsing, question generation, speech feedback, video feedback, and real-time audio/video session endpoints.
 - A `React + TypeScript + Vite` frontend for the landing page, resume upload flow, and live mock interview experience.
