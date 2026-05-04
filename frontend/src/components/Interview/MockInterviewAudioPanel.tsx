@@ -162,6 +162,15 @@ const MockInterviewAudioPanel = ({ audioStatus, isAudioRunning, onToggle, onFull
                 Stop
               </button>
             </>
+          ) : audioStatus === "connecting" || audioStatus === "connected" ? (
+            <button
+              type="button"
+              disabled
+              className="flex-1 flex items-center justify-center gap-2 rounded-lg px-6 py-3 font-semibold opacity-60 cursor-not-allowed theme-button-primary"
+            >
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              Connecting…
+            </button>
           ) : (
             <button
               type="button"
