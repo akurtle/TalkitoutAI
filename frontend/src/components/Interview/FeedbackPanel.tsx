@@ -8,6 +8,24 @@ type FeedbackPanelProps = {
   error: string | null;
 };
 
+const computeOverallScore = (
+  speech: number | null,
+  video: number | null,
+  response: number | null
+): number | null => {
+  const has = { speech: speech !== null, video: video !== null, response: response !== null };
+  if (!has.speech && !has.video && !has.response) return null;
+  if (has.speech && has.video && has.response)
+    return Math.round((speech! * 0.35 + video! * 0.30 + response! * 0.35) * 10) / 10;
+  if (has.speech && has.video) return Math.round((speech! * 0.55 + video! * 0.45) * 10) / 10;
+  if (has.speech && has.response) return Math.round((speech! * 0.45 + response! * 0.55) * 10) / 10;
+  if (has.video && has.response) return Math.round((video! * 0.45 + response! * 0.55) * 10) / 10;
+  return speech ?? video ?? response;
+};
+
+const overallScoreColor = (score: number) =>
+  score >= 80 ? "text-emerald-400" : score >= 60 ? "text-yellow-300" : "text-orange-400";
+
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 
@@ -51,6 +69,9 @@ export default function FeedbackPanel({
   const videoWarnings = asStringArray(videoData?.warnings);
   const videoNotes = asStringArray(videoData?.feedback);
 
+  const overallScore = computeOverallScore(speechFeedbackScore, videoFeedbackScore, responseScore);
+  const anyReady = speechStatus === "ready" || videoStatus === "ready";
+
   return (
     <div className="theme-panel rounded-2xl p-6 backdrop-blur">
       <div className="flex items-center justify-between mb-4">
@@ -61,6 +82,35 @@ export default function FeedbackPanel({
       {error && (
         <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
           <p className="text-red-300 text-sm">{error}</p>
+        </div>
+      )}
+
+      {anyReady && overallScore !== null && (
+        <div className="mb-4 theme-panel-strong rounded-xl px-5 py-4 flex items-center justify-between">
+          <div>
+            <p className="theme-text-dim text-xs uppercase tracking-wide">Overall performance</p>
+            <p className={`text-4xl font-bold mt-1 ${overallScoreColor(overallScore)}`}>
+              {overallScore.toFixed(1)}
+              <span className="theme-text-muted text-lg font-normal"> / 100</span>
+            </p>
+          </div>
+          <div className="text-right space-y-1">
+            {speechFeedbackScore !== null && (
+              <p className="theme-text-muted text-xs">
+                Speech <span className="theme-text-secondary font-medium">{speechFeedbackScore.toFixed(1)}</span>
+              </p>
+            )}
+            {responseScore !== null && (
+              <p className="theme-text-muted text-xs">
+                Responses <span className="theme-text-secondary font-medium">{responseScore.toFixed(1)}</span>
+              </p>
+            )}
+            {videoFeedbackScore !== null && (
+              <p className="theme-text-muted text-xs">
+                Video <span className="theme-text-secondary font-medium">{videoFeedbackScore.toFixed(1)}</span>
+              </p>
+            )}
+          </div>
         </div>
       )}
 

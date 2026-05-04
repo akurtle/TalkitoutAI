@@ -101,9 +101,9 @@ function Navbar() {
           <NavLink to="/interview-type" className={({ isActive }) => navLinkClass(isActive)}>
             Modes
           </NavLink>
-          <a href="/#pricing" className={navLinkClass()}>
+          <NavLink to="/pricing" className={({ isActive }) => navLinkClass(isActive)}>
             Pricing
-          </a>
+          </NavLink>
         </div>
 
         <div className="relative z-10 flex items-center gap-2 sm:gap-3">
@@ -170,13 +170,13 @@ function Navbar() {
                     >
                       Modes
                     </NavLink>
-                    <a
-                      href="/#pricing"
-                      className={menuItemClass()}
+                    <NavLink
+                      to="/pricing"
+                      className={() => menuItemClass()}
                       onClick={() => setMenuOpen(false)}
                     >
                       Pricing
-                    </a>
+                    </NavLink>
                     <div className="mx-2 my-2 border-t border-[var(--border)]" />
                   </div>
 
