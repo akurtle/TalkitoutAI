@@ -164,6 +164,18 @@ function MockInterview() {
       <main className="grid h-[calc(100vh-64px)] grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_380px] lg:overflow-hidden">
         <section className="overflow-y-auto p-4 sm:p-6">
           <div className="mx-auto max-w-5xl">
+            {isLive && controller.audioStatus !== "recording" && (
+              <div className="mb-4 flex items-center gap-3 rounded-2xl border border-yellow-500/25 bg-yellow-500/8 px-4 py-3">
+                <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-yellow-400 border-t-transparent" />
+                <div>
+                  <p className="text-sm font-semibold text-yellow-200">Setting up microphone</p>
+                  <p className="text-xs text-yellow-200/60">
+                    Hold off speaking — transcription isn't ready yet
+                  </p>
+                </div>
+              </div>
+            )}
+
             {controller.recordMode === "audio" ? (
               <MockInterviewAudioPanel
                 audioStatus={controller.audioStatus}
