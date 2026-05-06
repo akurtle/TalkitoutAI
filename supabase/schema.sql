@@ -202,6 +202,8 @@ create index if not exists interview_sessions_user_id_created_at_idx
     duration_seconds,
     speech_score,
     video_score,
+    response_score,
+    overall_score,
     recording_duration_seconds,
     started_at,
     ended_at,
@@ -317,6 +319,8 @@ select
   duration_seconds,
   speech_score,
   video_score,
+  response_score,
+  overall_score,
   started_at,
   ended_at,
   created_at,
@@ -369,3 +373,31 @@ using (
   bucket_id = 'session-recordings'
   and ((select auth.uid())::text = (storage.foldername(name))[1])
 );
+
+alter table public.interview_sessions
+  add column if not exists response_score double precision,
+  add column if not exists overall_score double precision;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'interview_sessions_response_score_range_chk'
+  ) then
+    alter table public.interview_sessions
+      add constraint interview_sessions_response_score_range_chk
+      check (response_score is null or (response_score >= 0 and response_score <= 100));
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'interview_sessions_overall_score_range_chk'
+  ) then
+    alter table public.interview_sessions
+      add constraint interview_sessions_overall_score_range_chk
+      check (overall_score is null or (overall_score >= 0 and overall_score <= 100));
+  end if;
+end
+$$;

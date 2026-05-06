@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import FeedbackPanel from "../components/Interview/FeedbackPanel";
-import LiveArticulationPanel from "../components/Interview/LiveArticulationPanel";
+import FreeTalkSpeechPractice from "../components/Interview/FreeTalkSpeechPractice";
 import MockInterviewAudioPanel from "../components/Interview/MockInterviewAudioPanel";
 import MockInterviewInfoModal from "../components/Interview/MockInterviewInfoModal";
+import MouthArticulationCoach from "../components/Interview/MouthArticulationCoach";
 import QuestionGenerator from "../components/Interview/QuestionGenerator";
 import SettingsModal from "../components/Interview/SettingsModal";
-import WebRTCRecorder from "../components/Interview/WebRTCRecorder";
+import LocalMediaRecorder from "../components/Interview/LocalMediaRecorder";
 import { WaveIcon } from "../components/Brand/BrandLogo";
 import { useMockInterviewController } from "../hooks/useMockInterviewController";
+import { useLiveSpeechMetrics } from "../hooks/useLiveSpeechMetrics";
 
-type AiTab = "coach" | "transcript" | "metrics";
+type AiTab = "coach" | "transcript";
 type PracticeMode = "talk" | "interview" | "pitch";
 
 const formatClock = (totalSeconds: number) => {
@@ -66,6 +68,7 @@ function MockInterview() {
   const navigate = useNavigate();
   const location = useLocation();
   const practiceMode = useMemo(() => getStoredPracticeMode(location.search), [location.search]);
+  const isPaused = controller.connectionStatus === "paused";
   const isLive =
     controller.connectionStatus === "connecting" ||
     controller.connectionStatus === "connected" ||
@@ -99,10 +102,24 @@ function MockInterview() {
     };
   }, [isLive, elapsedSeconds]);
 
+  const handleAudioFullStop = useCallback(() => {
+    controller.handleAudioFullStop();
+    setElapsedSeconds(0);
+  }, [controller]);
+
+  const handleLocalMediaFullStop = useCallback(() => {
+    controller.handleLocalMediaFullStopPending();
+    setElapsedSeconds(0);
+  }, [controller]);
+
+  const speechMetrics = useLiveSpeechMetrics(controller.transcripts, isLive);
+
   const coachMessage = isLive
     ? "Keep your answer anchored in one clear point, then support it with a concrete example."
-    : controller.speechFeedbackStatus === "ready" || controller.videoFeedbackStatus === "ready"
-      ? "Your report is ready. Review the metrics tab for patterns to carry into the next run."
+    : isPaused
+      ? "Session paused. Resume when you are ready to continue from the same run."
+      : controller.speechFeedbackStatus === "ready" || controller.videoFeedbackStatus === "ready"
+      ? "Your report is ready. Review the feedback panel for patterns to carry into the next run."
       : "Start your session and I will give you real-time tips as your answer develops.";
 
   return (
@@ -161,53 +178,52 @@ function MockInterview() {
       <main className="grid h-[calc(100vh-64px)] grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_380px] lg:overflow-hidden">
         <section className="overflow-y-auto p-4 sm:p-6">
           <div className="mx-auto max-w-5xl">
+            {isLive && controller.audioStatus !== "recording" && (
+              <div className="mb-4 flex items-center gap-3 rounded-2xl border border-yellow-500/25 bg-yellow-500/8 px-4 py-3">
+                <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-yellow-400 border-t-transparent" />
+                <div>
+                  <p className="text-sm font-semibold text-yellow-200">Setting up microphone</p>
+                  <p className="text-xs text-yellow-200/60">
+                    Hold off speaking — transcription isn't ready yet
+                  </p>
+                </div>
+              </div>
+            )}
+
             {controller.recordMode === "audio" ? (
               <MockInterviewAudioPanel
                 audioStatus={controller.audioStatus}
                 isAudioRunning={controller.isAudioRunning}
+                isPaused={controller.isAudioPaused}
                 onToggle={controller.handleAudioToggle}
+                onFullStop={handleAudioFullStop}
               />
             ) : (
-              <WebRTCRecorder
+              <LocalMediaRecorder
                 mode={controller.recordMode}
                 sessionType={controller.sessionType}
                 callEnvironment={controller.callEnvironment}
-                mouthTrackingEnabled={controller.mouthTrackingEnabled}
+                audienceStyle={controller.audienceStyle}
                 selectedAudioInputId={controller.mediaSelection.audioInputId}
                 selectedVideoInputId={controller.mediaSelection.videoInputId}
                 onPreferredDevicesUnavailable={controller.handlePreferredDevicesUnavailable}
                 onStatusChange={(status) => {
                   controller.setConnectionStatus(status);
                 }}
-                onTranscript={controller.handleTranscript}
                 onVisionData={controller.handleVisionData}
                 onRecordingReady={controller.handleRecordingReady}
                 onStreamReady={controller.setSharedMediaStream}
+                onFullStop={handleLocalMediaFullStop}
               />
             )}
 
-            {isLive && (
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <div className="theme-panel-soft rounded-2xl p-4">
-                  <p className="theme-text-dim text-xs uppercase tracking-[0.08em]">Pace</p>
-                  <p className="theme-text-primary mt-2 text-xl font-semibold">128 wpm</p>
-                </div>
-                <div className="theme-panel-soft rounded-2xl p-4">
-                  <p className="theme-text-dim text-xs uppercase tracking-[0.08em]">Clarity</p>
-                  <p className="theme-text-primary mt-2 text-xl font-semibold">
-                    {controller.articulationStats.statusText}
-                  </p>
-                </div>
-                <div className="theme-panel-soft rounded-2xl p-4">
-                  <p className="theme-text-dim text-xs uppercase tracking-[0.08em]">Filler words</p>
-                  <p className="theme-text-primary mt-2 text-xl font-semibold">3/min</p>
-                </div>
-              </div>
-            )}
-
-            {controller.recordMode !== "audio" && controller.mouthTrackingEnabled && (
+            {practiceMode === "talk" && (
               <div className="mt-5">
-                <LiveArticulationPanel stats={controller.articulationStats} />
+                <FreeTalkSpeechPractice
+                  transcripts={controller.transcripts}
+                  isLive={isLive}
+                  isConnecting={isLive && controller.audioStatus !== "recording"}
+                />
               </div>
             )}
 
@@ -224,8 +240,8 @@ function MockInterview() {
         </section>
 
         <aside className="border-l border-[var(--border)] bg-[var(--bg2)] lg:overflow-y-auto">
-          <div className="sticky top-0 z-10 grid grid-cols-3 border-b border-[var(--border)] bg-[var(--bg2)]">
-            {(["coach", "transcript", "metrics"] as AiTab[]).map((tab) => (
+          <div className="sticky top-0 z-10 grid grid-cols-2 border-b border-[var(--border)] bg-[var(--bg2)]">
+            {(["coach", "transcript"] as AiTab[]).map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -248,7 +264,49 @@ function MockInterview() {
                   <p className="theme-text-primary text-sm leading-[1.65]">{coachMessage}</p>
                 </div>
 
-                {practiceMode === "talk" ? (
+                {isLive && speechMetrics.tips.length > 0 && (
+                  <div className="theme-panel-soft rounded-2xl p-4">
+                    <p className="theme-text-dim mb-3 text-xs uppercase tracking-wide">
+                      Live analysis
+                    </p>
+                    <div className="space-y-2">
+                      {speechMetrics.tips.map((tip) => (
+                        <div key={tip.id} className="flex items-start gap-2">
+                          <span
+                            className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${
+                              tip.level === "warn"
+                                ? "bg-yellow-400"
+                                : tip.level === "good"
+                                  ? "bg-emerald-400"
+                                  : "bg-[var(--accent)]"
+                            }`}
+                          />
+                          <p
+                            className={`text-sm leading-snug ${
+                              tip.level === "warn"
+                                ? "text-yellow-200"
+                                : tip.level === "good"
+                                  ? "text-emerald-300"
+                                  : "theme-text-secondary"
+                            }`}
+                          >
+                            {tip.text}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <MouthArticulationCoach
+                  isLive={isLive}
+                  recordMode={controller.recordMode}
+                  videoFeedback={controller.videoFeedback}
+                  videoStatus={controller.videoFeedbackStatus}
+                  visionFrames={controller.visionFrames}
+                />
+
+                {practiceMode === "talk" && (
                   <div className="theme-panel-soft rounded-2xl p-4">
                     <p className="theme-text-primary text-sm font-semibold">Quick tips</p>
                     <div className="mt-3 space-y-3">
@@ -264,18 +322,6 @@ function MockInterview() {
                       ))}
                     </div>
                   </div>
-                ) : (
-                  <QuestionGenerator
-                    apiBase={controller.apiBase}
-                    endpointPath={controller.endpoints.questions}
-                    sessionType={controller.sessionType}
-                    onQuestions={controller.handleQuestions}
-                    onAnswersChange={controller.setQuestionAnswers}
-                    onInputChange={controller.setQuestionContext}
-                    transcripts={controller.transcripts}
-                    startSignal={controller.interviewStartSignal}
-                    onCurrentQuestionChange={controller.handleCurrentQuestionChange}
-                  />
                 )}
 
                 {controller.sessionSaveMessage && (
@@ -296,9 +342,75 @@ function MockInterview() {
               </>
             )}
 
+            {practiceMode !== "talk" && (
+              <div className={activeTab !== "coach" ? "hidden" : ""}>
+                <QuestionGenerator
+                  apiBase={controller.apiBase}
+                  endpointPath={controller.endpoints.questions}
+                  sessionType={controller.sessionType}
+                  onQuestions={controller.handleQuestions}
+                  onAnswersChange={controller.setQuestionAnswers}
+                  onInputChange={controller.setQuestionContext}
+                  transcripts={controller.transcripts}
+                  startSignal={controller.interviewStartSignal}
+                  resetSignal={controller.sessionResetSignal}
+                  onCurrentQuestionChange={controller.handleCurrentQuestionChange}
+                />
+              </div>
+            )}
+
             {activeTab === "transcript" && (
               <div className="space-y-3">
-                {controller.transcripts.length > 0 ? (
+                {controller.generatedQuestions.length > 0 ? (
+                  (() => {
+                    const lastEndTs = controller.questionAnswers.reduce(
+                      (max, a) => Math.max(max, a.endedAtMs ?? 0),
+                      0
+                    );
+                    return controller.generatedQuestions.map((question, i) => {
+                      const answer = controller.questionAnswers.find((a) => a.index === i);
+                      const isActive = controller.activeQuestion?.index === i;
+                      const segments = answer
+                        ? answer.transcriptSegments
+                        : isActive
+                          ? controller.transcripts.filter((t) => t.ts > lastEndTs && t.isFinal)
+                          : [];
+                      return (
+                        <div key={i} className="theme-panel-soft rounded-2xl p-4">
+                          <div className="mb-2 flex items-start gap-2">
+                            <span className="theme-accent-text mt-0.5 shrink-0 font-mono text-xs">
+                              {i + 1}
+                            </span>
+                            <p className="theme-text-primary text-sm font-semibold leading-snug">
+                              {question.question}
+                            </p>
+                            {isActive && (
+                              <span className="theme-chip ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                                Live
+                              </span>
+                            )}
+                          </div>
+                          {segments.length > 0 ? (
+                            <div className="mt-2 space-y-1 border-l-2 border-[var(--border)] pl-3">
+                              {segments.map((seg, si) => (
+                                <p
+                                  key={`${seg.ts}-${si}`}
+                                  className="theme-text-secondary text-sm leading-[1.6]"
+                                >
+                                  {seg.text}
+                                </p>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="theme-text-dim mt-2 pl-5 text-xs">
+                              {isActive ? "Waiting for your response…" : "No answer recorded yet."}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()
+                ) : controller.transcripts.length > 0 ? (
                   controller.transcripts.map((item, index) => (
                     <div key={`${item.ts}-${index}`} className="theme-panel-soft rounded-2xl p-4">
                       <p className="theme-text-dim text-xs">
@@ -314,33 +426,6 @@ function MockInterview() {
                 )}
               </div>
             )}
-
-            {activeTab === "metrics" && (
-              <div className="space-y-3">
-                {[
-                  ["Pace", "72%", "Slightly fast - aim for 120-150 wpm"],
-                  ["Clarity", "88%", "Strong sentence structure"],
-                  ["Filler words", "3/min", "Um appears most often"],
-                  ["Confidence", "81%", "Good eye contact and posture signals"],
-                ].map(([label, value, note]) => (
-                  <div key={label} className="theme-panel-soft rounded-2xl p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="theme-text-dim text-xs uppercase tracking-[0.08em]">{label}</p>
-                      <p className="theme-text-primary text-2xl font-bold">{value}</p>
-                    </div>
-                    {value.endsWith("%") && (
-                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--bg3)]">
-                        <div
-                          className="h-full rounded-full bg-[var(--accent)]"
-                          style={{ width: value }}
-                        />
-                      </div>
-                    )}
-                    <p className="theme-text-secondary mt-3 text-xs leading-[1.55]">{note}</p>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </aside>
       </main>
@@ -350,10 +435,10 @@ function MockInterview() {
         onClose={() => setIsSettingsOpen(false)}
         recordMode={controller.recordMode}
         callEnvironment={controller.callEnvironment}
+        audienceStyle={controller.audienceStyle}
         onSetCallEnvironment={controller.setCallEnvironment}
+        onSetAudienceStyle={controller.setAudienceStyle}
         setRecordMode={controller.setRecordMode}
-        mouthTrackingEnabled={controller.mouthTrackingEnabled}
-        onSetMouthTrackingEnabled={controller.setMouthTrackingEnabled}
         mediaDevices={controller.mediaDevices}
         mediaSelection={controller.mediaSelection}
         onSelectAudioInput={controller.handleAudioInputSelect}
@@ -365,8 +450,6 @@ function MockInterview() {
         mediaDeviceMessage={controller.mediaDeviceMessage}
         mediaDeviceLabelsAvailable={controller.mediaDeviceLabelsAvailable}
         isSessionLocked={controller.isSessionLocked}
-        connectionStatus={controller.connectionStatus}
-        visionData={controller.visionData}
       />
 
       <MockInterviewInfoModal isOpen={isInfoOpen} onClose={() => setIsInfoOpen(false)} />

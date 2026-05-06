@@ -128,6 +128,12 @@ function Features() {
           >
             Start talking free -&gt;
           </Link>
+          <Link
+            to="/pricing"
+            className="cta-outline ml-0 mt-3 inline-flex rounded-xl px-[28px] py-[13px] text-[14px] font-semibold sm:ml-3"
+          >
+            Compare plans
+          </Link>
         </div>
       </section>
     </>

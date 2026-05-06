@@ -11,6 +11,7 @@ const MockInterview = lazy(() => import("./pages/MockInterview"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Auth = lazy(() => import("./pages/Auth"));
 const Account = lazy(() => import("./pages/Account"));
+const Pricing = lazy(() => import("./pages/Pricing"));
 
 function RouteFallback() {
   return (
@@ -34,6 +35,7 @@ function App() {
               <Route path="/get-started" element={<GetStarted />} />
               <Route path="/interview-type" element={<InterviewType />} />
               <Route path="/mock-interview" element={<MockInterview />} />
+              <Route path="/pricing" element={<Pricing />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/auth" element={<Auth />} />
               <Route

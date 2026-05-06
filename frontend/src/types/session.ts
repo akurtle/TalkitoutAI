@@ -49,6 +49,8 @@ export type StoredInterviewSession = {
   video_feedback: unknown | null;
   speech_score: number | null;
   video_score: number | null;
+  response_score: number | null;
+  overall_score: number | null;
   recording_bucket: string | null;
   recording_path: string | null;
   recording_mime: string | null;
@@ -73,6 +75,8 @@ export type StoredInterviewSessionSummary = {
   duration_seconds: number;
   speech_score: number | null;
   video_score: number | null;
+  response_score: number | null;
+  overall_score: number | null;
   has_recording: boolean;
   started_at: string;
   ended_at: string;

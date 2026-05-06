@@ -1,12 +1,36 @@
 import type { FeedbackStatus, QuestionResponseReview } from "../../types/interview";
 
 type FeedbackPanelProps = {
-  speechFeedback: any;
-  videoFeedback: any;
+  speechFeedback: unknown;
+  videoFeedback: unknown;
   speechStatus: FeedbackStatus;
   videoStatus: FeedbackStatus;
   error: string | null;
 };
+
+const computeOverallScore = (
+  speech: number | null,
+  video: number | null,
+  response: number | null
+): number | null => {
+  const has = { speech: speech !== null, video: video !== null, response: response !== null };
+  if (!has.speech && !has.video && !has.response) return null;
+  if (has.speech && has.video && has.response)
+    return Math.round((speech! * 0.35 + video! * 0.30 + response! * 0.35) * 10) / 10;
+  if (has.speech && has.video) return Math.round((speech! * 0.55 + video! * 0.45) * 10) / 10;
+  if (has.speech && has.response) return Math.round((speech! * 0.45 + response! * 0.55) * 10) / 10;
+  if (has.video && has.response) return Math.round((video! * 0.45 + response! * 0.55) * 10) / 10;
+  return speech ?? video ?? response;
+};
+
+const overallScoreColor = (score: number) =>
+  score >= 80 ? "text-emerald-400" : score >= 60 ? "text-yellow-300" : "text-orange-400";
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+
+const asStringArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 
 const feedbackBadgeClass = (status: FeedbackStatus) =>
   status === "ready"
@@ -20,47 +44,6 @@ const feedbackBadgeClass = (status: FeedbackStatus) =>
 const feedbackBadgeLabel = (status: FeedbackStatus) =>
   status === "ready" ? "Ready" : status === "loading" ? "Loading" : status === "error" ? "Error" : "Idle";
 
-const videoMetricLabels: Array<{ key: string; label: string }> = [
-  { key: "frame_count", label: "Frames analyzed" },
-  { key: "mouth_frame_count", label: "Mouth frames" },
-  { key: "face_presence_rate", label: "Face presence rate" },
-  { key: "gaze_at_camera_rate", label: "Gaze at camera rate" },
-  { key: "smile_rate", label: "Smile rate" },
-  { key: "avg_smile_prob", label: "Avg smile probability" },
-  { key: "head_movement_std", label: "Head movement std" },
-  { key: "long_gaze_break_rate", label: "Long gaze break rate" },
-  { key: "long_gaze_breaks", label: "Long gaze breaks" },
-  { key: "gaze_break_frames", label: "Gaze break frames" },
-  { key: "avg_mouth_open_ratio", label: "Avg mouth openness" },
-  { key: "avg_mouth_movement_delta", label: "Avg mouth movement" },
-  { key: "articulation_active_rate", label: "Active articulation rate" },
-];
-
-const formatVideoMetric = (key: string, value: any) => {
-  if (value === null || value === undefined) return "N/A";
-  const num = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(num)) return String(value);
-
-  if (
-    [
-      "face_presence_rate",
-      "gaze_at_camera_rate",
-      "smile_rate",
-      "long_gaze_break_rate",
-      "avg_mouth_open_ratio",
-      "articulation_active_rate",
-    ].includes(key)
-  ) {
-    return `${(num * 100).toFixed(1)}%`;
-  }
-
-  if (["avg_smile_prob", "head_movement_std", "avg_mouth_movement_delta"].includes(key)) {
-    return num.toFixed(2);
-  }
-
-  return Math.round(num).toString();
-};
-
 export default function FeedbackPanel({
   speechFeedback,
   videoFeedback,
@@ -68,31 +51,26 @@ export default function FeedbackPanel({
   videoStatus,
   error,
 }: FeedbackPanelProps) {
+  const speechData = asRecord(speechFeedback);
+  const videoData = asRecord(videoFeedback);
   const speechFeedbackScore =
-    typeof speechFeedback?.score === "number" ? speechFeedback.score : null;
-  const speechMetrics =
-    speechFeedback && typeof speechFeedback === "object" ? speechFeedback.metrics ?? null : null;
-  const speechWarnings = Array.isArray(speechFeedback?.warnings) ? speechFeedback.warnings : [];
-  const speechNotes = Array.isArray(speechFeedback?.feedback) ? speechFeedback.feedback : [];
+    typeof speechData?.score === "number" ? speechData.score : null;
+  const speechWarnings = asStringArray(speechData?.warnings);
+  const speechNotes = asStringArray(speechData?.feedback);
   const responseScore =
-    typeof speechFeedback?.response_score === "number" ? speechFeedback.response_score : null;
-  const responseMetrics =
-    speechFeedback && typeof speechFeedback === "object"
-      ? speechFeedback.response_metrics ?? null
-      : null;
-  const responseNotes = Array.isArray(speechFeedback?.response_feedback)
-    ? speechFeedback.response_feedback
-    : [];
-  const questionReviews = Array.isArray(speechFeedback?.question_reviews)
-    ? (speechFeedback.question_reviews as QuestionResponseReview[])
+    typeof speechData?.response_score === "number" ? speechData.response_score : null;
+  const responseNotes = asStringArray(speechData?.response_feedback);
+  const questionReviews = Array.isArray(speechData?.question_reviews)
+    ? (speechData.question_reviews as QuestionResponseReview[])
     : [];
 
   const videoFeedbackScore =
-    typeof videoFeedback?.score === "number" ? videoFeedback.score : null;
-  const videoMetrics =
-    videoFeedback && typeof videoFeedback === "object" ? videoFeedback.metrics ?? null : null;
-  const videoWarnings = Array.isArray(videoFeedback?.warnings) ? videoFeedback.warnings : [];
-  const videoNotes = Array.isArray(videoFeedback?.feedback) ? videoFeedback.feedback : [];
+    typeof videoData?.score === "number" ? videoData.score : null;
+  const videoWarnings = asStringArray(videoData?.warnings);
+  const videoNotes = asStringArray(videoData?.feedback);
+
+  const overallScore = computeOverallScore(speechFeedbackScore, videoFeedbackScore, responseScore);
+  const anyReady = speechStatus === "ready" || videoStatus === "ready";
 
   return (
     <div className="theme-panel rounded-2xl p-6 backdrop-blur">
@@ -104,6 +82,35 @@ export default function FeedbackPanel({
       {error && (
         <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
           <p className="text-red-300 text-sm">{error}</p>
+        </div>
+      )}
+
+      {anyReady && overallScore !== null && (
+        <div className="mb-4 theme-panel-strong rounded-xl px-5 py-4 flex items-center justify-between">
+          <div>
+            <p className="theme-text-dim text-xs uppercase tracking-wide">Overall performance</p>
+            <p className={`text-4xl font-bold mt-1 ${overallScoreColor(overallScore)}`}>
+              {overallScore.toFixed(1)}
+              <span className="theme-text-muted text-lg font-normal"> / 100</span>
+            </p>
+          </div>
+          <div className="text-right space-y-1">
+            {speechFeedbackScore !== null && (
+              <p className="theme-text-muted text-xs">
+                Speech <span className="theme-text-secondary font-medium">{speechFeedbackScore.toFixed(1)}</span>
+              </p>
+            )}
+            {responseScore !== null && (
+              <p className="theme-text-muted text-xs">
+                Responses <span className="theme-text-secondary font-medium">{responseScore.toFixed(1)}</span>
+              </p>
+            )}
+            {videoFeedbackScore !== null && (
+              <p className="theme-text-muted text-xs">
+                Video <span className="theme-text-secondary font-medium">{videoFeedbackScore.toFixed(1)}</span>
+              </p>
+            )}
+          </div>
         </div>
       )}
 
@@ -137,12 +144,7 @@ export default function FeedbackPanel({
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="theme-text-dim text-xs">Based on transcript</p>
-                  <p className="theme-text-muted text-xs">
-                    {typeof speechMetrics?.total_words === "number"
-                      ? `${speechMetrics.total_words} words`
-                      : "Word count pending"}
-                  </p>
+                  <p className="theme-text-dim text-xs">Transcript review</p>
                 </div>
               </div>
 
@@ -160,25 +162,6 @@ export default function FeedbackPanel({
                 </div>
               )}
 
-              {/* {speechMetrics && (
-                <div className="space-y-2">
-                  <p className="theme-text-dim text-xs uppercase tracking-wide">Metrics</p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {speechMetricLabels.map((metric) => (
-                      <div
-                        key={metric.key}
-                        className="theme-panel-strong flex items-center justify-between rounded-lg px-3 py-2"
-                      >
-                        <span className="theme-text-muted text-xs">{metric.label}</span>
-                        <span className="theme-text-primary text-sm">
-                          {formatSpeechMetric(metric.key, speechMetrics?.[metric.key])}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )} */}
-
               {speechWarnings.length > 0 && (
                 <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
                   <p className="text-xs uppercase tracking-wide text-yellow-300 mb-2">Warnings</p>
@@ -190,10 +173,10 @@ export default function FeedbackPanel({
                 </div>
               )}
 
-              {!speechMetrics && speechNotes.length === 0 && speechWarnings.length === 0 && (
-                <pre className="text-xs text-gray-300 whitespace-pre-wrap">
-                  {JSON.stringify(speechFeedback, null, 2)}
-                </pre>
+              {speechNotes.length === 0 && speechWarnings.length === 0 && (
+                <p className="theme-text-muted text-sm">
+                  Feedback generated, but no additional speech notes were returned.
+                </p>
               )}
             </div>
           )}
@@ -228,12 +211,7 @@ export default function FeedbackPanel({
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="theme-text-dim text-xs">Based on video frames</p>
-                  <p className="theme-text-muted text-xs">
-                    {typeof videoMetrics?.frame_count === "number"
-                      ? `${videoMetrics.frame_count} frames`
-                      : "Frame count pending"}
-                  </p>
+                  <p className="theme-text-dim text-xs">Visual delivery review</p>
                 </div>
               </div>
 
@@ -251,25 +229,6 @@ export default function FeedbackPanel({
                 </div>
               )}
 
-              {videoMetrics && (
-                <div className="space-y-2">
-                  <p className="theme-text-dim text-xs uppercase tracking-wide">Metrics</p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {videoMetricLabels.map((metric) => (
-                      <div
-                        key={metric.key}
-                        className="theme-panel-strong flex items-center justify-between rounded-lg px-3 py-2"
-                      >
-                        <span className="theme-text-muted text-xs">{metric.label}</span>
-                        <span className="theme-text-primary text-sm">
-                          {formatVideoMetric(metric.key, videoMetrics?.[metric.key])}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {videoWarnings.length > 0 && (
                 <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
                   <p className="text-xs uppercase tracking-wide text-yellow-300 mb-2">Warnings</p>
@@ -281,10 +240,10 @@ export default function FeedbackPanel({
                 </div>
               )}
 
-              {!videoMetrics && videoNotes.length === 0 && videoWarnings.length === 0 && (
-                <pre className="text-xs text-gray-300 whitespace-pre-wrap">
-                  {JSON.stringify(videoFeedback, null, 2)}
-                </pre>
+              {videoNotes.length === 0 && videoWarnings.length === 0 && (
+                <p className="theme-text-muted text-sm">
+                  Feedback generated, but no additional video notes were returned.
+                </p>
               )}
             </div>
           )}
@@ -317,35 +276,6 @@ export default function FeedbackPanel({
                   </li>
                 ))}
               </ul>
-            </div>
-          )}
-
-          {responseMetrics && (
-            <div className="mb-4 grid gap-2 sm:grid-cols-3">
-              <div className="theme-panel-strong rounded-lg px-3 py-2">
-                <p className="theme-text-muted text-xs">Reviewed questions</p>
-                <p className="theme-text-primary text-sm font-semibold">
-                  {typeof responseMetrics.reviewed_questions === "number"
-                    ? responseMetrics.reviewed_questions
-                    : "N/A"}
-                </p>
-              </div>
-              <div className="theme-panel-strong rounded-lg px-3 py-2">
-                <p className="theme-text-muted text-xs">Avg answer length</p>
-                <p className="theme-text-primary text-sm font-semibold">
-                  {typeof responseMetrics.avg_answer_word_count === "number"
-                    ? `${responseMetrics.avg_answer_word_count.toFixed(1)} words`
-                    : "N/A"}
-                </p>
-              </div>
-              <div className="theme-panel-strong rounded-lg px-3 py-2">
-                <p className="theme-text-muted text-xs">Score consistency</p>
-                <p className="theme-text-primary text-sm font-semibold">
-                  {typeof responseMetrics.score_stddev === "number"
-                    ? responseMetrics.score_stddev.toFixed(1)
-                    : "N/A"}
-                </p>
-              </div>
             </div>
           )}
 

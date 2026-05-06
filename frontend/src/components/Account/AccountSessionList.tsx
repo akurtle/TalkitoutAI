@@ -39,16 +39,36 @@ const AccountSessionList = ({ selectedSessionId, sessions, onSelect }: Props) =>
               </span>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="theme-panel-soft rounded-2xl p-4">
-                <p className="theme-text-dim text-xs uppercase tracking-wide">Speech</p>
-                <p className="theme-text-primary mt-2 text-2xl font-semibold">
+            <div className="theme-panel-soft rounded-2xl p-4 mb-3">
+              <p className="theme-text-dim text-xs uppercase tracking-wide">Overall score</p>
+              <p className={`mt-1 text-3xl font-bold ${
+                session.overall_score == null
+                  ? "theme-text-muted"
+                  : session.overall_score >= 80
+                  ? "text-emerald-400"
+                  : session.overall_score >= 60
+                  ? "text-yellow-300"
+                  : "text-orange-400"
+              }`}>
+                {formatScore(session.overall_score)}
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="theme-panel-soft rounded-2xl p-3">
+                <p className="theme-text-dim text-[11px] uppercase tracking-wide">Speech</p>
+                <p className="theme-text-primary mt-1 text-lg font-semibold">
                   {formatScore(session.speech_score)}
                 </p>
               </div>
-              <div className="theme-panel-soft rounded-2xl p-4">
-                <p className="theme-text-dim text-xs uppercase tracking-wide">Video</p>
-                <p className="theme-text-primary mt-2 text-2xl font-semibold">
+              <div className="theme-panel-soft rounded-2xl p-3">
+                <p className="theme-text-dim text-[11px] uppercase tracking-wide">Responses</p>
+                <p className="theme-text-primary mt-1 text-lg font-semibold">
+                  {formatScore(session.response_score)}
+                </p>
+              </div>
+              <div className="theme-panel-soft rounded-2xl p-3">
+                <p className="theme-text-dim text-[11px] uppercase tracking-wide">Video</p>
+                <p className="theme-text-primary mt-1 text-lg font-semibold">
                   {formatScore(session.video_score)}
                 </p>
               </div>
