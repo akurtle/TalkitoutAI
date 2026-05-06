@@ -1,6 +1,8 @@
 import ThemePicker from "../Settings/ThemePicker";
+import { AUDIENCE_STYLE_OPTIONS } from "./audienceStyles";
 import { CALL_ENVIRONMENT_OPTIONS } from "./callEnvironments";
 import type {
+  AudienceStyleId,
   CallEnvironmentId,
   MediaDeviceCatalog,
   MediaDeviceSelection,
@@ -12,10 +14,10 @@ type SettingsModalProps = {
   onClose: () => void;
   recordMode: RecordMode;
   callEnvironment: CallEnvironmentId;
+  audienceStyle: AudienceStyleId;
   onSetCallEnvironment: (environment: CallEnvironmentId) => void;
+  onSetAudienceStyle: (style: AudienceStyleId) => void;
   setRecordMode: (mode: RecordMode) => void;
-  mouthTrackingEnabled: boolean;
-  onSetMouthTrackingEnabled: (enabled: boolean) => void;
   mediaDevices: MediaDeviceCatalog;
   mediaSelection: MediaDeviceSelection;
   onSelectAudioInput: (deviceId: string) => void;
@@ -25,8 +27,6 @@ type SettingsModalProps = {
   mediaDeviceMessage: string | null;
   mediaDeviceLabelsAvailable: boolean;
   isSessionLocked: boolean;
-  connectionStatus: string;
-  visionData: unknown;
 };
 
 export default function SettingsModal({
@@ -34,10 +34,10 @@ export default function SettingsModal({
   onClose,
   recordMode,
   callEnvironment,
+  audienceStyle,
   onSetCallEnvironment,
+  onSetAudienceStyle,
   setRecordMode,
-  mouthTrackingEnabled,
-  onSetMouthTrackingEnabled,
   mediaDevices,
   mediaSelection,
   onSelectAudioInput,
@@ -47,11 +47,8 @@ export default function SettingsModal({
   mediaDeviceMessage,
   mediaDeviceLabelsAvailable,
   isSessionLocked,
-  connectionStatus,
-  visionData,
 }: SettingsModalProps) {
   if (!isOpen) return null;
-  const hasVisionData = visionData !== null && visionData !== undefined;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
@@ -105,6 +102,38 @@ export default function SettingsModal({
           </div>
         </div>
 
+        {(callEnvironment === "audience" || callEnvironment === "webinar") && (
+          <div className="mb-6">
+            <p className="theme-text-muted mb-2 text-sm">Audience look</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {AUDIENCE_STYLE_OPTIONS.map((style) => (
+                <button
+                  key={style.id}
+                  type="button"
+                  onClick={() => onSetAudienceStyle(style.id)}
+                  className={`rounded-lg border px-3 py-3 text-left text-sm transition ${
+                    audienceStyle === style.id
+                      ? "theme-choice-active theme-text-primary"
+                      : "theme-button-secondary"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold">{style.label}</span>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[11px] ${style.accentClassName}`}
+                    >
+                      {style.shortLabel}
+                    </span>
+                  </div>
+                  <p className="theme-text-muted mt-2 text-xs leading-5">
+                    {style.helperText}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="mb-6">
           <p className="theme-text-muted mb-2 text-sm">Recording mode</p>
           <div className="grid grid-cols-2 gap-2">
@@ -153,51 +182,6 @@ export default function SettingsModal({
           {isSessionLocked && (
             <p className="mt-2 text-xs text-yellow-400">
               Stop the session to change recording mode
-            </p>
-          )}
-        </div>
-
-        <div className="theme-panel-soft mb-6 rounded-lg p-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="theme-text-primary text-sm font-semibold">
-                Mouth movement tracking
-              </p>
-              <p className="theme-text-muted mt-1 text-xs">
-                Uses backend face landmarks during video sessions to estimate visible
-                articulation and mouth opening.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              role="switch"
-              aria-checked={mouthTrackingEnabled}
-              onClick={() => onSetMouthTrackingEnabled(!mouthTrackingEnabled)}
-              disabled={isSessionLocked}
-              className={`relative inline-flex h-7 w-14 items-center rounded-full border transition ${
-                mouthTrackingEnabled
-                  ? "theme-choice-active"
-                  : "theme-button-secondary"
-              } ${isSessionLocked ? "cursor-not-allowed opacity-50" : ""}`}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
-                  mouthTrackingEnabled ? "translate-x-8" : "translate-x-1"
-                }`}
-              />
-            </button>
-          </div>
-
-          <p className="theme-text-muted mt-3 text-xs">
-            {mouthTrackingEnabled
-              ? "Enabled for new video sessions."
-              : "Disabled. Video sessions will skip backend mouth articulation analysis."}
-          </p>
-
-          {isSessionLocked && (
-            <p className="mt-2 text-xs text-yellow-400">
-              Stop the session to change mouth tracking
             </p>
           )}
         </div>
@@ -282,36 +266,6 @@ export default function SettingsModal({
           )}
         </div>
 
-        <div className="theme-panel-soft mb-6 rounded-lg p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="theme-text-muted text-sm">Connection</span>
-            <span
-              className={`inline-flex items-center gap-2 rounded px-2 py-1 text-xs font-semibold ${
-                connectionStatus === "connected"
-                  ? "bg-emerald-500/10 text-emerald-400"
-                  : connectionStatus === "connecting"
-                    ? "bg-yellow-500/10 text-yellow-400"
-                    : connectionStatus === "error"
-                      ? "bg-red-500/10 text-red-400"
-                      : "bg-gray-800 text-gray-400"
-              }`}
-            >
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  connectionStatus === "connected"
-                    ? "bg-emerald-500 animate-pulse"
-                    : connectionStatus === "connecting"
-                      ? "bg-yellow-500 animate-pulse"
-                      : connectionStatus === "error"
-                        ? "bg-red-500"
-                        : "bg-gray-600"
-                }`}
-              />
-              {connectionStatus}
-            </span>
-          </div>
-        </div>
-
         <div className="mb-6">
           <h3 className="theme-text-primary mb-3 flex items-center gap-2 font-semibold">
             <svg className="theme-accent-text h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -337,23 +291,6 @@ export default function SettingsModal({
             </li>
           </ul>
         </div>
-
-        {hasVisionData && (
-          <div className="theme-border mt-4 border-t pt-4">
-            <h3 className="theme-text-primary mb-3 flex items-center gap-2 font-semibold">
-              <svg className="theme-accent-text h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-              Vision Analysis
-            </h3>
-            <div className="theme-panel-soft rounded-lg p-3">
-              <pre className="theme-text-secondary whitespace-pre-wrap text-xs">
-                {JSON.stringify(visionData, null, 2)}
-              </pre>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

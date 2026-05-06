@@ -11,6 +11,7 @@ type QuestionGeneratorProps = {
   onInputChange?: (inputs: { role: string; company: string; callType: string }) => void;
   transcripts?: Array<{ text: string; isFinal: boolean; ts: number }>;
   startSignal?: number;
+  resetSignal?: number;
   onCurrentQuestionChange?: (question: GeneratedQuestion | null, index: number, total: number) => void;
 };
 
@@ -104,6 +105,7 @@ export default function QuestionGenerator({
   onInputChange,
   transcripts,
   startSignal,
+  resetSignal,
   onCurrentQuestionChange,
 }: QuestionGeneratorProps) {
   const endpoint = useMemo(() => `${apiBase}${endpointPath}`, [apiBase, endpointPath]);
@@ -127,6 +129,22 @@ export default function QuestionGenerator({
   const questionStartRef = useRef<number | null>(null);
   const transcriptStartIndexRef = useRef<number>(0);
   const startSignalRef = useRef<number | null>(null);
+
+  const startInterview = () => {
+    if (questions.length === 0) {
+      setError("Generate questions before starting the interview.");
+      return;
+    }
+    setError(null);
+    setInterviewStatus("running");
+    setCurrentIndex(0);
+    setAnswers([]);
+    sessionStartRef.current = Date.now();
+    questionStartRef.current = Date.now();
+    transcriptStartIndexRef.current = (transcripts ?? []).length;
+  };
+
+  const startInterviewRef = useRef(startInterview);
   const contextPresets = useMemo(() => getPresetsForSession(sessionType), [sessionType]);
   const currentPreset =
     contextPresets.find((preset) => preset.value === callType) ?? contextPresets[0];
@@ -239,14 +257,24 @@ export default function QuestionGenerator({
     return () => clearInterval(timer);
   }, [interviewStatus]);
 
+  startInterviewRef.current = startInterview;
+
   useEffect(() => {
     if (startSignal === undefined || startSignal === null) return;
     if (startSignalRef.current === startSignal) return;
     startSignalRef.current = startSignal;
     if (interviewStatus !== "running") {
-      startInterview();
+      startInterviewRef.current();
     }
   }, [startSignal, interviewStatus]);
+
+  const prevResetSignalRef = useRef(resetSignal);
+  useEffect(() => {
+    if (prevResetSignalRef.current === resetSignal) return;
+    prevResetSignalRef.current = resetSignal;
+    resetInterviewState();
+    onCurrentQuestionChange?.(null, 0, 0);
+  }, [resetSignal, onCurrentQuestionChange]);
 
   const currentQuestion = questions[currentIndex];
   useEffect(() => {
@@ -362,20 +390,6 @@ export default function QuestionGenerator({
       }
       return undefined;
     }
-  };
-
-  const startInterview = () => {
-    if (questions.length === 0) {
-      setError("Generate questions before starting the interview.");
-      return;
-    }
-    setError(null);
-    setInterviewStatus("running");
-    setCurrentIndex(0);
-    setAnswers([]);
-    sessionStartRef.current = Date.now();
-    questionStartRef.current = Date.now();
-    transcriptStartIndexRef.current = (transcripts ?? []).length;
   };
 
   const goToNextQuestion = async () => {
@@ -797,9 +811,10 @@ export default function QuestionGenerator({
             )}
           </div>
         ) : rawResponse ? (
-          <pre className="whitespace-pre-wrap text-xs text-gray-300">
-            {JSON.stringify(rawResponse, null, 2)}
-          </pre>
+          <p className="theme-text-dim text-sm">
+            The generator returned a response, but it did not include a usable prompt. Adjust the
+            brief and try again.
+          </p>
         ) : (
           <p className="theme-text-dim text-sm">
             {sessionType === "pitch"
