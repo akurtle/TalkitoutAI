@@ -93,7 +93,23 @@ const AccountSessionDetails = ({
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="theme-panel-soft rounded-2xl p-4 text-center">
+              <p className="theme-text-dim text-xs uppercase tracking-wide">Overall Score</p>
+              <p className={`mt-2 text-3xl font-bold ${
+                selectedSession.overall_score == null
+                  ? "theme-text-muted"
+                  : selectedSession.overall_score >= 80
+                  ? "text-emerald-400"
+                  : selectedSession.overall_score >= 60
+                  ? "text-yellow-300"
+                  : "text-orange-400"
+              }`}>
+                {selectedSession.overall_score != null
+                  ? selectedSession.overall_score.toFixed(1)
+                  : "N/A"}
+              </p>
+            </div>
             <div className="theme-panel-soft rounded-2xl p-4 text-center">
               <p className="theme-text-dim text-xs uppercase tracking-wide">Questions</p>
               <p className="theme-text-primary mt-2 text-3xl font-semibold">
