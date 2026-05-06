@@ -58,7 +58,7 @@ export const CALL_ENVIRONMENT_PRESETS: Record<
     shortLabel: "Webinar",
     description: "Host-centric event layout with side panels that feel like a larger broadcast room.",
     helperText: "Works well for investor updates, demos, and formal stakeholder presentations.",
-    stageLayout: "platform",
+    stageLayout: "audience",
     stageHeading: "Broadcast briefing",
     stageSubheading: "Host-led event framing with audience and agenda side chrome.",
     idleTitle: "Prepare the webinar room",

@@ -1,12 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  fetchWithLoopbackFallback,
-  getApiBase,
-  getWsBase,
-  openWebSocketWithLoopbackFallback,
-} from "../../network";
 import { CALL_ENVIRONMENT_PRESETS } from "./callEnvironments";
 import type {
+  AudienceStyleId,
   CallEnvironmentId,
   ConnectionStatus,
   RecordMode,
@@ -19,7 +14,7 @@ import {
   renderMeetScene,
   renderPlatformScene,
   renderTeamsScene,
-} from "./WebRTCRecorderSceneHelpers";
+} from "./LocalMediaRecorderSceneHelpers";
 
 type DetectedFace = {
   boundingBox?: {
@@ -34,58 +29,24 @@ type FaceDetectorLike = {
   detect: (input: CanvasImageSource) => Promise<DetectedFace[]>;
 };
 
-type IceCandidatePayload = {
-  candidate: string | null;
-  sdpMid: string | null;
-  sdpMLineIndex: number | null;
-  usernameFragment?: string | null;
-};
-
-type WebRTCConfig = {
-  ice_servers?: RTCIceServer[];
-  results_ws_heartbeat_seconds?: number;
-  session_ttl_seconds?: number;
-};
-
-type SignalAnswer = {
-  sdp: string;
-  type: RTCSdpType;
-  session_id: string;
-};
-
-type SessionEventMessage = {
-  type: "session_event";
-  event?: string;
-  value?: string;
-  session_id?: string;
-  timestamp?: string;
-};
-
-type RemoteIceCandidateMessage = IceCandidatePayload & {
-  type: "ice_candidate";
-  session_id?: string;
-  timestamp?: string;
-};
-
-type RecorderMessage = {
-  type?: string;
-  text?: string;
-  [key: string]: unknown;
+type MouthSample = {
+  openness: number;
+  signature: number[];
 };
 
 type Props = {
   mode?: RecordMode;
   sessionType?: SessionType;
   callEnvironment?: CallEnvironmentId;
-  mouthTrackingEnabled?: boolean;
+  audienceStyle?: AudienceStyleId;
   selectedAudioInputId?: string;
   selectedVideoInputId?: string;
   onPreferredDevicesUnavailable?: (kinds: Array<"audioinput" | "videoinput">) => void;
   onStatusChange?: (status: ConnectionStatus) => void;
-  onTranscript?: (text: string, isFinal: boolean) => void;
   onVisionData?: (data: unknown) => void;
   onRecordingReady?: (recording: SessionRecording | null) => void;
   onStreamReady?: (stream: MediaStream | null) => void;
+  onFullStop?: () => void;
 };
 
 declare global {
@@ -93,13 +54,6 @@ declare global {
     FaceDetector?: new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => FaceDetectorLike;
   }
 }
-
-const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
-  { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
-];
-const DEFAULT_RESULTS_HEARTBEAT_SECONDS = 20;
-const RESULTS_RECONNECT_DELAYS_MS = [1000, 2000, 5000];
-const LOCAL_ICE_BATCH_DELAY_MS = 75;
 
 const isRecoverableDeviceSelectionError = (error: unknown) =>
   error instanceof DOMException &&
@@ -134,66 +88,136 @@ const buildMediaConstraints = ({
       : false,
 });
 
-const observeIceGatheringComplete = (
-  pc: RTCPeerConnection,
-  onComplete: () => void
-) => {
-  if (pc.iceGatheringState === "complete") {
-    onComplete();
-    return () => {};
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const toFiniteNumber = (value: number | undefined, fallback = 0) =>
+  typeof value === "number" && Number.isFinite(value) ? value : fallback;
+
+// FaceDetector only exposes a face box in most browsers, so mouth metrics use a lower-face crop.
+const sampleMouthRegion = (
+  ctx: CanvasRenderingContext2D,
+  face: NonNullable<DetectedFace["boundingBox"]>,
+  canvasWidth: number,
+  canvasHeight: number
+): MouthSample | null => {
+  const faceX = toFiniteNumber(face.x);
+  const faceY = toFiniteNumber(face.y);
+  const faceWidth = toFiniteNumber(face.width);
+  const faceHeight = toFiniteNumber(face.height);
+
+  if (faceWidth < 60 || faceHeight < 60) {
+    return null;
   }
 
-  let isDone = false;
-  const handleChange = () => {
-    if (isDone || pc.iceGatheringState !== "complete") {
-      return;
+  const mouthRect = {
+    x: Math.round(clamp(faceX + faceWidth * 0.26, 0, canvasWidth - 1)),
+    y: Math.round(clamp(faceY + faceHeight * 0.62, 0, canvasHeight - 1)),
+    width: Math.round(clamp(faceWidth * 0.48, 1, canvasWidth)),
+    height: Math.round(clamp(faceHeight * 0.2, 1, canvasHeight)),
+  };
+
+  mouthRect.width = Math.min(mouthRect.width, canvasWidth - mouthRect.x);
+  mouthRect.height = Math.min(mouthRect.height, canvasHeight - mouthRect.y);
+
+  if (mouthRect.width < 12 || mouthRect.height < 8) {
+    return null;
+  }
+
+  const data = ctx.getImageData(
+    mouthRect.x,
+    mouthRect.y,
+    mouthRect.width,
+    mouthRect.height
+  ).data;
+  const pixelStride = Math.max(1, Math.floor(Math.min(mouthRect.width, mouthRect.height) / 18));
+  const grayValues: number[] = [];
+
+  for (let y = 0; y < mouthRect.height; y += pixelStride) {
+    for (let x = 0; x < mouthRect.width; x += pixelStride) {
+      const index = (y * mouthRect.width + x) * 4;
+      const gray = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+      grayValues.push(gray);
     }
+  }
 
-    isDone = true;
-    pc.removeEventListener("icegatheringstatechange", handleChange);
-    onComplete();
-  };
+  if (grayValues.length === 0) {
+    return null;
+  }
 
-  pc.addEventListener("icegatheringstatechange", handleChange);
-  return () => {
-    isDone = true;
-    pc.removeEventListener("icegatheringstatechange", handleChange);
-  };
+  const meanGray = grayValues.reduce((total, gray) => total + gray, 0) / grayValues.length;
+  const variance =
+    grayValues.reduce((total, gray) => total + (gray - meanGray) ** 2, 0) / grayValues.length;
+  const stdGray = Math.sqrt(variance);
+  const darkThreshold = Math.max(35, meanGray - Math.max(18, stdGray * 0.65));
+  const darkShare =
+    grayValues.filter((gray) => gray < darkThreshold).length / Math.max(1, grayValues.length);
+  const openness = clamp((darkShare - 0.03) / 0.45, 0, 1);
+  const signature: number[] = [];
+  const gridColumns = 12;
+  const gridRows = 6;
+
+  for (let row = 0; row < gridRows; row += 1) {
+    for (let column = 0; column < gridColumns; column += 1) {
+      const x = clamp(
+        Math.round((column + 0.5) * (mouthRect.width / gridColumns)),
+        0,
+        mouthRect.width - 1
+      );
+      const y = clamp(
+        Math.round((row + 0.5) * (mouthRect.height / gridRows)),
+        0,
+        mouthRect.height - 1
+      );
+      const index = (y * mouthRect.width + x) * 4;
+      const gray = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+      signature.push(gray / 255);
+    }
+  }
+
+  return { openness, signature };
 };
 
-const WebRTCRecorder: React.FC<Props> = ({
+const calculateMouthMovementDelta = (
+  current: MouthSample,
+  previous: MouthSample | null
+): number | null => {
+  if (!previous || previous.signature.length !== current.signature.length) {
+    return null;
+  }
+
+  const imageDelta =
+    current.signature.reduce(
+      (total, value, index) => total + Math.abs(value - previous.signature[index]),
+      0
+    ) / current.signature.length;
+  const opennessDelta = Math.abs(current.openness - previous.openness);
+
+  return Math.max(imageDelta, opennessDelta);
+};
+
+const LocalMediaRecorder: React.FC<Props> = ({
   mode = "both",
   sessionType = "interview",
   callEnvironment = "teams",
-  mouthTrackingEnabled = true,
+  audienceStyle = "webinar-grid",
   selectedAudioInputId,
   selectedVideoInputId,
   onPreferredDevicesUnavailable,
   onStatusChange,
-  onTranscript,
   onVisionData,
   onRecordingReady,
   onStreamReady,
+  onFullStop,
 }) => {
-  const pcRef = useRef<RTCPeerConnection | null>(null);
   const stageShellRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const resultsHeartbeatRef = useRef<number | null>(null);
-  const resultsReconnectTimerRef = useRef<number | null>(null);
-  const resultsReconnectAttemptsRef = useRef(0);
-  const sessionActiveRef = useRef(false);
-  const configRef = useRef<WebRTCConfig | null>(null);
-  const pendingIceCandidatesRef = useRef<IceCandidatePayload[]>([]);
-  const pendingRemoteIceCandidatesRef = useRef<IceCandidatePayload[]>([]);
-  const pendingIceFlushTimerRef = useRef<number | null>(null);
-  const iceGatheringCleanupRef = useRef<(() => void) | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const visionIntervalRef = useRef<number | null>(null);
   const visionBusyRef = useRef(false);
   const visionEnabledRef = useRef(false);
   const faceDetectorRef = useRef<FaceDetectorLike | null>(null);
+  const previousMouthSampleRef = useRef<MouthSample | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const recordingMimeTypeRef = useRef<string>("");
@@ -205,23 +229,8 @@ const WebRTCRecorder: React.FC<Props> = ({
 
   const [status, setStatus] = useState<ConnectionStatus>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [messages, setMessages] = useState<RecorderMessage[]>([]);
-  const [connectionDetails, setConnectionDetails] = useState<{
-    signaling: string;
-    ice: string;
-    peer: string;
-    resultsSocket: string;
-  }>({
-    signaling: "idle",
-    ice: "new",
-    peer: "new",
-    resultsSocket: "idle",
-  });
-  const apiBase = getApiBase();
-  const wsBase = getWsBase();
   const environment = CALL_ENVIRONMENT_PRESETS[callEnvironment];
   const elapsedLabel = formatCallClock(elapsedMs);
   const supportsFullscreen =
@@ -232,17 +241,6 @@ const WebRTCRecorder: React.FC<Props> = ({
   const updateStatus = (newStatus: ConnectionStatus) => {
     setStatus(newStatus);
     onStatusChange?.(newStatus);
-  };
-
-  const updateConnectionDetails = (
-    patch: Partial<{
-      signaling: string;
-      ice: string;
-      peer: string;
-      resultsSocket: string;
-    }>
-  ) => {
-    setConnectionDetails((prev) => ({ ...prev, ...patch }));
   };
 
   const pickRecordingMimeType = () => {
@@ -355,6 +353,20 @@ const WebRTCRecorder: React.FC<Props> = ({
     await recordingStopPromiseRef.current;
   };
 
+  const pauseLocalRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder?.state === "recording") {
+      recorder.pause();
+    }
+  };
+
+  const resumeLocalRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder?.state === "paused") {
+      recorder.resume();
+    }
+  };
+
   const getFaceDetector = () => {
     if (faceDetectorRef.current) {
       return faceDetectorRef.current;
@@ -370,245 +382,6 @@ const WebRTCRecorder: React.FC<Props> = ({
       maxDetectedFaces: 1,
     });
     return faceDetectorRef.current;
-  };
-
-  const clearResultsSocketTimers = () => {
-    if (resultsHeartbeatRef.current) {
-      window.clearInterval(resultsHeartbeatRef.current);
-      resultsHeartbeatRef.current = null;
-    }
-    if (resultsReconnectTimerRef.current) {
-      window.clearTimeout(resultsReconnectTimerRef.current);
-      resultsReconnectTimerRef.current = null;
-    }
-  };
-
-  const reportResultsSocketFailure = (socketError: unknown) => {
-    console.error("Results WebSocket error:", socketError);
-    updateConnectionDetails({ resultsSocket: "error" });
-    setError(socketError instanceof Error ? socketError.message : "Results WebSocket connection failed");
-  };
-
-  const clearPendingIceFlushTimer = () => {
-    if (pendingIceFlushTimerRef.current) {
-      window.clearTimeout(pendingIceFlushTimerRef.current);
-      pendingIceFlushTimerRef.current = null;
-    }
-  };
-
-  const loadWebRtcConfig = async () => {
-    if (configRef.current) {
-      return configRef.current;
-    }
-
-    try {
-      const response = await fetchWithLoopbackFallback(`${apiBase}/webrtc/config`);
-      if (!response.ok) {
-        throw new Error(`Failed to load WebRTC config (${response.status})`);
-      }
-
-      const config = (await response.json()) as WebRTCConfig;
-      configRef.current = config;
-      return config;
-    } catch (configError) {
-      console.warn("Falling back to built-in ICE server config:", configError);
-      const fallbackConfig: WebRTCConfig = {
-        ice_servers: DEFAULT_ICE_SERVERS,
-        results_ws_heartbeat_seconds: DEFAULT_RESULTS_HEARTBEAT_SECONDS,
-      };
-      configRef.current = fallbackConfig;
-      return fallbackConfig;
-    }
-  };
-
-  const postIceCandidates = async (sid: string, candidates: IceCandidatePayload[]) => {
-    const response = await fetchWithLoopbackFallback(`${apiBase}/webrtc/candidates`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        session_id: sid,
-        candidates: candidates.map((candidate) => ({
-          candidate: candidate.candidate,
-          sdpMid: candidate.sdpMid,
-          sdpMLineIndex: candidate.sdpMLineIndex,
-          usernameFragment: candidate.usernameFragment ?? null,
-        })),
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to send ICE candidates (${response.status})`);
-    }
-  };
-
-  const flushPendingIceCandidates = async (sid: string) => {
-    clearPendingIceFlushTimer();
-    const pending = [...pendingIceCandidatesRef.current];
-    if (!pending.length) {
-      return;
-    }
-    pendingIceCandidatesRef.current = [];
-
-    try {
-      await postIceCandidates(sid, pending);
-    } catch (candidateError) {
-      console.error("Failed to send pending ICE candidates:", candidateError);
-      pendingIceCandidatesRef.current = [...pending, ...pendingIceCandidatesRef.current];
-      throw candidateError;
-    }
-  };
-
-  const schedulePendingIceFlush = (sid: string) => {
-    if (pendingIceFlushTimerRef.current) {
-      return;
-    }
-
-    pendingIceFlushTimerRef.current = window.setTimeout(() => {
-      pendingIceFlushTimerRef.current = null;
-      void flushPendingIceCandidates(sid).catch(() => {});
-    }, LOCAL_ICE_BATCH_DELAY_MS);
-  };
-
-  const queueIceCandidate = (sid: string, payload: IceCandidatePayload) => {
-    pendingIceCandidatesRef.current.push(payload);
-    if (payload.candidate === null) {
-      void flushPendingIceCandidates(sid).catch(() => {});
-      return;
-    }
-
-    schedulePendingIceFlush(sid);
-  };
-
-  const applyRemoteIceCandidate = async (payload: IceCandidatePayload) => {
-    const pc = pcRef.current;
-    if (!pc || !pc.remoteDescription) {
-      pendingRemoteIceCandidatesRef.current.push(payload);
-      return;
-    }
-
-    if (payload.candidate === null) {
-      await pc.addIceCandidate(null);
-      return;
-    }
-
-    await pc.addIceCandidate(
-      new RTCIceCandidate({
-        candidate: payload.candidate,
-        sdpMid: payload.sdpMid,
-        sdpMLineIndex: payload.sdpMLineIndex,
-        usernameFragment: payload.usernameFragment ?? undefined,
-      })
-    );
-  };
-
-  const flushPendingRemoteIceCandidates = async () => {
-    const pc = pcRef.current;
-    if (!pc || !pc.remoteDescription || !pendingRemoteIceCandidatesRef.current.length) {
-      return;
-    }
-
-    const pending = [...pendingRemoteIceCandidatesRef.current];
-    pendingRemoteIceCandidatesRef.current = [];
-
-    for (const candidate of pending) {
-      try {
-        await applyRemoteIceCandidate(candidate);
-      } catch (candidateError) {
-        console.error("Failed to apply remote ICE candidate:", candidateError);
-      }
-    }
-  };
-
-  const connectResultsWebSocket = async (sid: string) => {
-    const ws = await openWebSocketWithLoopbackFallback(`${wsBase}/ws/results/${sid}`);
-    wsRef.current = ws;
-    resultsReconnectAttemptsRef.current = 0;
-    updateConnectionDetails({ resultsSocket: "connected" });
-
-    const heartbeatSeconds =
-      configRef.current?.results_ws_heartbeat_seconds ?? DEFAULT_RESULTS_HEARTBEAT_SECONDS;
-    clearResultsSocketTimers();
-    resultsHeartbeatRef.current = window.setInterval(() => {
-      if (ws.readyState !== WebSocket.OPEN) {
-        return;
-      }
-
-      ws.send(JSON.stringify({ type: "ping", session_id: sid, timestamp: Date.now() }));
-    }, Math.max(5, heartbeatSeconds) * 1000);
-
-    ws.onmessage = async (event) => {
-      try {
-        const msg = JSON.parse(event.data) as RecorderMessage;
-        setMessages((prev) => [...prev.slice(-11), msg]);
-
-        if (msg.type === "transcript" || msg.type === "asr") {
-          const text = typeof msg.text === "string" ? msg.text : "";
-          if (text) {
-            onTranscript?.(text, true);
-          }
-          return;
-        }
-
-        if (msg.type === "vision" || msg.type === "vision_status") {
-          onVisionData?.(msg);
-          return;
-        }
-
-        if (msg.type === "ice_candidate") {
-          await applyRemoteIceCandidate(msg as RemoteIceCandidateMessage);
-          return;
-        }
-
-        if (msg.type === "session_event") {
-          const sessionEvent = msg as SessionEventMessage;
-          if (sessionEvent.event === "connection_state" && typeof sessionEvent.value === "string") {
-            updateConnectionDetails({ peer: sessionEvent.value });
-          }
-          if (sessionEvent.event === "ice_connection_state" && typeof sessionEvent.value === "string") {
-            updateConnectionDetails({ ice: sessionEvent.value });
-          }
-          if (sessionEvent.event === "results_socket" && typeof sessionEvent.value === "string") {
-            updateConnectionDetails({ resultsSocket: sessionEvent.value });
-          }
-          return;
-        }
-
-        if (msg.type === "pong") {
-          updateConnectionDetails({ resultsSocket: "healthy" });
-        }
-      } catch (parseError) {
-        console.error("Failed to parse WebSocket message:", parseError);
-      }
-    };
-
-    ws.onerror = () => {
-      if (!sessionActiveRef.current) {
-        return;
-      }
-      updateConnectionDetails({ resultsSocket: "error" });
-    };
-
-    ws.onclose = () => {
-      clearResultsSocketTimers();
-      wsRef.current = null;
-      updateConnectionDetails({ resultsSocket: "closed" });
-
-      if (!sessionActiveRef.current || isStoppingRef.current) {
-        return;
-      }
-
-      const attempt = resultsReconnectAttemptsRef.current;
-      const delay =
-        RESULTS_RECONNECT_DELAYS_MS[Math.min(attempt, RESULTS_RECONNECT_DELAYS_MS.length - 1)];
-      resultsReconnectAttemptsRef.current += 1;
-      resultsReconnectTimerRef.current = window.setTimeout(() => {
-        void connectResultsWebSocket(sid).catch((socketError: unknown) => {
-          console.error("Results WebSocket reconnect failed:", socketError);
-          setError(socketError instanceof Error ? socketError.message : "Results WebSocket reconnect failed");
-          updateStatus("error");
-        });
-      }, delay);
-    };
   };
 
   const startVisionSampling = () => {
@@ -631,11 +404,12 @@ const WebRTCRecorder: React.FC<Props> = ({
     }
 
     visionEnabledRef.current = true;
+    previousMouthSampleRef.current = null;
     if (visionIntervalRef.current) {
       window.clearInterval(visionIntervalRef.current);
     }
 
-    // Keep client-side vision sampling lightweight so signaling stays responsive.
+    // Keep client-side vision sampling lightweight so the interview UI stays responsive.
     visionIntervalRef.current = window.setInterval(async () => {
       if (visionBusyRef.current || !visionEnabledRef.current) return;
       visionBusyRef.current = true;
@@ -672,6 +446,9 @@ const WebRTCRecorder: React.FC<Props> = ({
         let headYaw: number | null = null;
         let headPitch: number | null = null;
         let lookingAtCamera = false;
+        let mouthOpenRatio: number | null = null;
+        let mouthMovementDelta: number | null = null;
+        let articulationActive: boolean | null = null;
 
         if (primaryFace) {
           const faceCenterX = ((primaryFace.x ?? 0) + (primaryFace.width ?? 0) / 2) / width;
@@ -682,6 +459,24 @@ const WebRTCRecorder: React.FC<Props> = ({
           headYaw = Math.max(-30, Math.min(30, horizontalOffset * 120));
           headPitch = Math.max(-20, Math.min(20, verticalOffset * 90));
           lookingAtCamera = Math.abs(horizontalOffset) <= 0.1 && Math.abs(verticalOffset) <= 0.12;
+
+          const mouthSample = sampleMouthRegion(ctx, primaryFace, width, height);
+          if (mouthSample) {
+            mouthOpenRatio = mouthSample.openness;
+            mouthMovementDelta = calculateMouthMovementDelta(
+              mouthSample,
+              previousMouthSampleRef.current
+            );
+            articulationActive =
+              mouthMovementDelta === null
+                ? null
+                : mouthMovementDelta >= 0.018 || mouthOpenRatio >= 0.18;
+            previousMouthSampleRef.current = mouthSample;
+          } else {
+            previousMouthSampleRef.current = null;
+          }
+        } else {
+          previousMouthSampleRef.current = null;
         }
 
         onVisionData?.({
@@ -693,6 +488,9 @@ const WebRTCRecorder: React.FC<Props> = ({
             smile_prob: null,
             head_yaw: headYaw,
             head_pitch: headPitch,
+            mouth_open_ratio: mouthOpenRatio,
+            mouth_movement_delta: mouthMovementDelta,
+            articulation_active: articulationActive,
           },
           source: "client",
         });
@@ -709,19 +507,21 @@ const WebRTCRecorder: React.FC<Props> = ({
     }, 800);
   };
 
+  const stopVisionSampling = () => {
+    if (visionIntervalRef.current) {
+      window.clearInterval(visionIntervalRef.current);
+      visionIntervalRef.current = null;
+    }
+    visionEnabledRef.current = false;
+    visionBusyRef.current = false;
+    previousMouthSampleRef.current = null;
+  };
+
   const startSession = async () => {
     setError(null);
-    sessionActiveRef.current = true;
     updateStatus("connecting");
-    updateConnectionDetails({
-      signaling: "starting",
-      ice: "new",
-      peer: "new",
-      resultsSocket: "connecting",
-    });
 
     try {
-      const config = await loadWebRtcConfig();
       const preferredKinds: Array<"audioinput" | "videoinput"> = [];
       if ((mode === "audio" || mode === "both") && selectedAudioInputId) {
         preferredKinds.push("audioinput");
@@ -767,107 +567,45 @@ const WebRTCRecorder: React.FC<Props> = ({
 
       startLocalRecording(stream);
 
-      const nextSessionId = sessionId ?? crypto.randomUUID();
-      setSessionId(nextSessionId);
-
-      const pc = new RTCPeerConnection({
-        iceCandidatePoolSize: 4,
-        iceServers: config.ice_servers?.length ? config.ice_servers : DEFAULT_ICE_SERVERS,
-      });
-      pcRef.current = pc;
-      iceGatheringCleanupRef.current?.();
-      iceGatheringCleanupRef.current = observeIceGatheringComplete(pc, () => {
-        iceGatheringCleanupRef.current = null;
-      });
-
-      pc.onconnectionstatechange = () => {
-        const peerState = pc.connectionState;
-        updateConnectionDetails({ peer: peerState });
-        if (peerState === "connected") {
-          updateStatus("connected");
-        } else if (peerState === "failed") {
-          updateStatus("error");
-          setError("WebRTC peer connection failed");
-        } else if (peerState === "disconnected") {
-          updateStatus("disconnected");
-          setError("WebRTC connection lost");
-        }
-      };
-
-      pc.oniceconnectionstatechange = () => {
-        const iceState = pc.iceConnectionState;
-        updateConnectionDetails({ ice: iceState });
-        if (iceState === "failed") {
-          setError("ICE negotiation failed. Check TURN/STUN configuration.");
-        }
-      };
-
-      pc.onicecandidate = (event) => {
-        const payload: IceCandidatePayload = event.candidate
-          ? {
-              candidate: event.candidate.candidate,
-              sdpMid: event.candidate.sdpMid,
-              sdpMLineIndex: event.candidate.sdpMLineIndex,
-              usernameFragment:
-                "usernameFragment" in event.candidate
-                  ? (event.candidate as RTCPeerConnectionIceEvent["candidate"] & {
-                      usernameFragment?: string | null;
-                    }).usernameFragment ?? null
-                  : null,
-            }
-          : {
-              candidate: null,
-              sdpMid: null,
-              sdpMLineIndex: null,
-              usernameFragment: null,
-            };
-
-        queueIceCandidate(nextSessionId, payload);
-      };
-
-      stream.getTracks().forEach((track) => {
-        pc.addTrack(track, stream);
-      });
-
-      updateConnectionDetails({ signaling: "creating_offer" });
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      void connectResultsWebSocket(nextSessionId).catch((socketError: unknown) => {
-        reportResultsSocketFailure(socketError);
-      });
-
-      const response = await fetchWithLoopbackFallback(`${apiBase}/webrtc/offer`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sdp: pc.localDescription?.sdp,
-          type: pc.localDescription?.type,
-          session_id: nextSessionId,
-          mouth_tracking_enabled: mouthTrackingEnabled,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Signaling failed: ${response.status} ${response.statusText}`);
-      }
-
-      const answer: SignalAnswer = await response.json();
-      setSessionId(answer.session_id);
-      updateConnectionDetails({ signaling: "answer_received" });
-
-      await pc.setRemoteDescription(new RTCSessionDescription(answer));
-      await flushPendingRemoteIceCandidates();
-      await flushPendingIceCandidates(answer.session_id);
-      updateConnectionDetails({ signaling: "stable" });
-
       startVisionSampling();
+      updateStatus("connected");
     } catch (sessionError: unknown) {
-      console.error("WebRTC setup error:", sessionError);
-      setError(sessionError instanceof Error ? sessionError.message : "Failed to start WebRTC session");
+      console.error("Local media setup error:", sessionError);
+      setError(sessionError instanceof Error ? sessionError.message : "Failed to start local media session");
       updateStatus("error");
-      updateConnectionDetails({ signaling: "error", resultsSocket: "error" });
     }
+  };
+
+  const pauseSession = () => {
+    if (status !== "connected") {
+      return;
+    }
+
+    pauseLocalRecording();
+    stopVisionSampling();
+    streamRef.current?.getTracks().forEach((track) => {
+      track.enabled = false;
+    });
+    updateStatus("paused");
+  };
+
+  const resumeSession = async () => {
+    if (status !== "paused" || !streamRef.current) {
+      return;
+    }
+
+    streamRef.current.getTracks().forEach((track) => {
+      track.enabled = true;
+    });
+
+    if (videoRef.current && (mode === "video" || mode === "both")) {
+      videoRef.current.srcObject = streamRef.current;
+      await videoRef.current.play().catch(() => {});
+    }
+
+    resumeLocalRecording();
+    startVisionSampling();
+    updateStatus("connected");
   };
 
   const stopSession = async () => {
@@ -875,10 +613,7 @@ const WebRTCRecorder: React.FC<Props> = ({
       return;
     }
     isStoppingRef.current = true;
-    sessionActiveRef.current = false;
 
-    clearResultsSocketTimers();
-    clearPendingIceFlushTimer();
     await stopLocalRecording();
 
     streamRef.current?.getTracks().forEach((track) => {
@@ -887,40 +622,13 @@ const WebRTCRecorder: React.FC<Props> = ({
     streamRef.current = null;
     onStreamReady?.(null);
 
-    if (pcRef.current) {
-      pcRef.current.getSenders().forEach((sender) => {
-        sender.track?.stop();
-      });
-      pcRef.current.close();
-      pcRef.current = null;
-    }
-    iceGatheringCleanupRef.current?.();
-    iceGatheringCleanupRef.current = null;
-
-    wsRef.current?.close();
-    wsRef.current = null;
-
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
 
-    if (visionIntervalRef.current) {
-      window.clearInterval(visionIntervalRef.current);
-      visionIntervalRef.current = null;
-    }
-    visionEnabledRef.current = false;
-    visionBusyRef.current = false;
-    pendingIceCandidatesRef.current = [];
-    pendingRemoteIceCandidatesRef.current = [];
+    stopVisionSampling();
 
-    updateConnectionDetails({
-      signaling: "idle",
-      ice: "closed",
-      peer: "closed",
-      resultsSocket: "closed",
-    });
     updateStatus("idle");
-    setSessionId(null);
     isStoppingRef.current = false;
   };
 
@@ -994,6 +702,8 @@ const WebRTCRecorder: React.FC<Props> = ({
                 ? "theme-status-dot-active animate-pulse"
                 : status === "connecting"
                   ? "theme-status-dot-warn animate-pulse"
+                  : status === "paused"
+                    ? "theme-status-dot-warn"
                   : "theme-status-dot"
             }`}
           />
@@ -1002,10 +712,10 @@ const WebRTCRecorder: React.FC<Props> = ({
               {status === "idle" && "Ready to start"}
               {status === "connecting" && "Connecting..."}
               {status === "connected" && "Live session"}
+              {status === "paused" && "Session paused"}
               {status === "disconnected" && "Disconnected"}
               {status === "error" && "Error"}
             </p>
-            {sessionId && <p className="theme-text-dim text-xs">Session: {sessionId.slice(0, 8)}</p>}
           </div>
         </div>
 
@@ -1068,7 +778,7 @@ const WebRTCRecorder: React.FC<Props> = ({
               />
 
               {environment.stageLayout === "audience"
-                ? renderAudienceScene(status, environment.label, sessionType)
+                ? renderAudienceScene(status, environment.label, sessionType, audienceStyle)
                 : renderPlatformScene(
                     status,
                     environment.label,
@@ -1150,25 +860,6 @@ const WebRTCRecorder: React.FC<Props> = ({
           </div>
         )}
 
-        <div className="mb-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="theme-panel-soft rounded-lg px-3 py-2">
-            <p className="theme-text-dim text-xs uppercase tracking-wide">Signaling</p>
-            <p className="theme-text-primary mt-1 text-sm font-semibold">{connectionDetails.signaling}</p>
-          </div>
-          <div className="theme-panel-soft rounded-lg px-3 py-2">
-            <p className="theme-text-dim text-xs uppercase tracking-wide">ICE</p>
-            <p className="theme-text-primary mt-1 text-sm font-semibold">{connectionDetails.ice}</p>
-          </div>
-          <div className="theme-panel-soft rounded-lg px-3 py-2">
-            <p className="theme-text-dim text-xs uppercase tracking-wide">Peer</p>
-            <p className="theme-text-primary mt-1 text-sm font-semibold">{connectionDetails.peer}</p>
-          </div>
-          <div className="theme-panel-soft rounded-lg px-3 py-2">
-            <p className="theme-text-dim text-xs uppercase tracking-wide">Results socket</p>
-            <p className="theme-text-primary mt-1 text-sm font-semibold">{connectionDetails.resultsSocket}</p>
-          </div>
-        </div>
-
         <div className="flex gap-3">
           {status === "idle" || status === "error" ? (
             <button
@@ -1177,31 +868,69 @@ const WebRTCRecorder: React.FC<Props> = ({
             >
               Start Session
             </button>
+          ) : status === "connecting" ? (
+            <>
+              <button
+                disabled
+                className="theme-button-primary flex flex-1 cursor-wait items-center justify-center gap-2 rounded-lg px-6 py-3 font-semibold opacity-70"
+              >
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                Connecting...
+              </button>
+              <button
+                onClick={() => {
+                  onFullStop?.();
+                  void stopSession();
+                }}
+                className="theme-button-secondary rounded-lg px-6 py-3 font-semibold text-red-300 hover:text-red-200"
+              >
+                Stop
+              </button>
+            </>
+          ) : status === "paused" ? (
+            <>
+              <button
+                onClick={() => {
+                  void resumeSession();
+                }}
+                className="theme-button-primary flex-1 rounded-lg px-6 py-3 font-semibold"
+              >
+                Resume
+              </button>
+              <button
+                onClick={() => {
+                  onFullStop?.();
+                  void stopSession();
+                }}
+                className="theme-button-secondary rounded-lg px-6 py-3 font-semibold text-red-300 hover:text-red-200"
+              >
+                Stop
+              </button>
+            </>
           ) : (
-            <button
-              onClick={() => {
-                void stopSession();
-              }}
-              className="theme-button-secondary flex-1 rounded-lg px-6 py-3 font-semibold"
-            >
-              Stop Session
-            </button>
+            <>
+              <button
+                onClick={pauseSession}
+                className="theme-button-secondary flex-1 rounded-lg px-6 py-3 font-semibold"
+              >
+                Pause
+              </button>
+              <button
+                onClick={() => {
+                  onFullStop?.();
+                  void stopSession();
+                }}
+                className="theme-button-secondary rounded-lg px-6 py-3 font-semibold text-red-300 hover:text-red-200"
+              >
+                Stop
+              </button>
+            </>
           )}
         </div>
 
-        {messages.length > 0 && (
-          <div className="theme-panel-soft mt-4 max-h-32 space-y-2 overflow-y-auto rounded-lg p-3">
-            {messages.slice(-5).map((msg, i) => (
-              <div key={i} className="text-xs">
-                <span className="theme-accent-text font-mono">{msg.type}:</span>{" "}
-                <span className="theme-text-secondary">{JSON.stringify(msg, null, 2)}</span>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
 };
 
-export default WebRTCRecorder;
+export default LocalMediaRecorder;

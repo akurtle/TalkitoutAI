@@ -35,7 +35,7 @@ const MockInterviewInfoModal = ({ isOpen, onClose }: Props) => {
             <p className="theme-text-primary text-sm font-semibold">Room simulator</p>
             <p className="theme-text-muted mt-2 text-sm">
               The environment switch changes the stage UI only. Your recording, transcription,
-              feedback, and backend behavior stay the same.
+              and feedback behavior stay the same.
             </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {CALL_ENVIRONMENT_OPTIONS.map((environment) => (
@@ -65,10 +65,10 @@ const MockInterviewInfoModal = ({ isOpen, onClose }: Props) => {
           </div>
 
           <div className="theme-panel-soft rounded-2xl p-4">
-            <p className="theme-text-primary text-sm font-semibold">Live articulation</p>
+            <p className="theme-text-primary text-sm font-semibold">Video feedback</p>
             <p className="theme-text-muted mt-2 text-sm">
-              Mouth tracking estimates visible articulation during video sessions. It helps with
-              presence and clarity, but it does not score exact pronunciation.
+              Video sessions can include delivery feedback after you stop, including presence and
+              camera engagement cues.
             </p>
           </div>
 

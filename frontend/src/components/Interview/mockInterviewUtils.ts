@@ -1,15 +1,16 @@
+import { isAudienceStyleId } from "./audienceStyles";
 import { isCallEnvironmentId } from "./callEnvironments";
 import type {
+  AudienceStyleId,
   CallEnvironmentId,
-  LiveArticulationStats,
   MediaDeviceCatalog,
   MediaDeviceSelection,
   VisionFrame,
 } from "../../types/interview";
 
 const MEDIA_SELECTION_STORAGE_KEY = "interview-ai:selected-media-devices";
-const MOUTH_TRACKING_STORAGE_KEY = "interview-ai:mouth-tracking-enabled";
 const CALL_ENVIRONMENT_STORAGE_KEY = "interview-ai:call-environment";
+const AUDIENCE_STYLE_STORAGE_KEY = "interview-ai:audience-style";
 
 const parseTimestampSeconds = (value: unknown): number => {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -75,19 +76,6 @@ export const readStoredMediaSelection = (): MediaDeviceSelection => {
   }
 };
 
-export const readStoredMouthTrackingEnabled = () => {
-  if (typeof window === "undefined") {
-    return true;
-  }
-
-  const raw = window.localStorage.getItem(MOUTH_TRACKING_STORAGE_KEY);
-  if (raw === null) {
-    return true;
-  }
-
-  return raw !== "false";
-};
-
 export const readStoredCallEnvironment = (): CallEnvironmentId => {
   if (typeof window === "undefined") {
     return "teams";
@@ -97,16 +85,25 @@ export const readStoredCallEnvironment = (): CallEnvironmentId => {
   return isCallEnvironmentId(raw) ? raw : "teams";
 };
 
+export const readStoredAudienceStyle = (): AudienceStyleId => {
+  if (typeof window === "undefined") {
+    return "webinar-grid";
+  }
+
+  const raw = window.localStorage.getItem(AUDIENCE_STYLE_STORAGE_KEY);
+  return isAudienceStyleId(raw) ? raw : "webinar-grid";
+};
+
 export const persistMediaSelection = (selection: MediaDeviceSelection) => {
   window.localStorage.setItem(MEDIA_SELECTION_STORAGE_KEY, JSON.stringify(selection));
 };
 
-export const persistMouthTrackingEnabled = (enabled: boolean) => {
-  window.localStorage.setItem(MOUTH_TRACKING_STORAGE_KEY, enabled ? "true" : "false");
-};
-
 export const persistCallEnvironment = (environment: CallEnvironmentId) => {
   window.localStorage.setItem(CALL_ENVIRONMENT_STORAGE_KEY, environment);
+};
+
+export const persistAudienceStyle = (style: AudienceStyleId) => {
+  window.localStorage.setItem(AUDIENCE_STYLE_STORAGE_KEY, style);
 };
 
 export const buildDeviceLabel = (device: MediaDeviceInfo, index: number) => {
@@ -116,11 +113,6 @@ export const buildDeviceLabel = (device: MediaDeviceInfo, index: number) => {
   }
 
   return device.kind === "audioinput" ? `Microphone ${index + 1}` : `Camera ${index + 1}`;
-};
-
-export const formatPercent = (value: number | null) => {
-  if (value === null) return "N/A";
-  return `${Math.round(value * 100)}%`;
 };
 
 export const normalizeVisionFrame = (data: unknown): VisionFrame | null => {
@@ -194,64 +186,5 @@ export const normalizeVisionFrame = (data: unknown): VisionFrame | null => {
     articulation_active: parseOptionalBoolean(
       frameData.articulation_active ?? frameData.articulationActive
     ),
-  };
-};
-
-export const getLiveArticulationStats = (
-  visionFrames: VisionFrame[],
-  mouthTrackingEnabled: boolean
-): LiveArticulationStats => {
-  const recentMouthFrames = visionFrames.filter(
-    (frame) =>
-      mouthTrackingEnabled &&
-      (typeof frame.mouth_open_ratio === "number" ||
-        typeof frame.mouth_movement_delta === "number" ||
-        typeof frame.articulation_active === "boolean")
-  );
-
-  const latestMouthFrame =
-    recentMouthFrames.length > 0 ? recentMouthFrames[recentMouthFrames.length - 1] : null;
-  const mouthFramesWindow = recentMouthFrames.slice(-8);
-  const mouthOpenSamples = mouthFramesWindow.filter(
-    (frame) => typeof frame.mouth_open_ratio === "number"
-  );
-  const mouthMovementSamples = mouthFramesWindow.filter(
-    (frame) => typeof frame.mouth_movement_delta === "number"
-  );
-
-  const mouthOpenRatio =
-    mouthOpenSamples.length > 0
-      ? mouthFramesWindow.reduce((sum, frame) => sum + (frame.mouth_open_ratio ?? 0), 0) /
-        mouthOpenSamples.length
-      : null;
-
-  const articulationRate =
-    mouthFramesWindow.length > 0
-      ? mouthFramesWindow.filter((frame) => frame.articulation_active === true).length /
-        mouthFramesWindow.length
-      : null;
-
-  const mouthMovement =
-    mouthMovementSamples.length > 0
-      ? mouthFramesWindow.reduce((sum, frame) => sum + (frame.mouth_movement_delta ?? 0), 0) /
-        mouthMovementSamples.length
-      : null;
-
-  return {
-    mouthOpenRatio,
-    articulationRate,
-    mouthMovement,
-    statusText:
-      latestMouthFrame === null
-        ? "Waiting for backend mouth tracking..."
-        : latestMouthFrame.articulation_active
-          ? "Good visible articulation"
-          : "Mouth movement looks limited",
-    toneClassName:
-      latestMouthFrame?.articulation_active === true
-        ? "text-emerald-300"
-        : latestMouthFrame
-          ? "text-yellow-300"
-          : "theme-text-muted",
   };
 };

@@ -3,6 +3,7 @@ import Navbar from "../components/Layout/Navbar";
 import AccountHeader from "../components/Account/AccountHeader";
 import AccountSessionDetails from "../components/Account/AccountSessionDetails";
 import AccountSessionList from "../components/Account/AccountSessionList";
+import ScoreProgressChart from "../components/Account/ScoreProgressChart";
 import { useAccountPage } from "../hooks/useAccountPage";
 
 export default function Account() {
@@ -52,21 +53,24 @@ export default function Account() {
           )}
 
           {account.sessions.length > 0 && (
-            <div className="grid gap-6 xl:grid-cols-[360px,minmax(0,1fr)]">
-              <AccountSessionList
-                selectedSessionId={account.selectedSessionId}
-                sessions={account.sessions}
-                onSelect={account.handleSessionSelect}
-              />
-              <AccountSessionDetails
-                detailStatus={account.detailStatus}
-                error={account.error}
-                recordingError={account.recordingError}
-                recordingStatus={account.recordingStatus}
-                recordingUrl={account.recordingUrl}
-                selectedSession={account.selectedSession}
-                selectedSessionAnswers={account.selectedSessionAnswers}
-              />
+            <div className="space-y-6">
+              <ScoreProgressChart sessions={account.sessions} />
+              <div className="grid gap-6 xl:grid-cols-[360px,minmax(0,1fr)]">
+                <AccountSessionList
+                  selectedSessionId={account.selectedSessionId}
+                  sessions={account.sessions}
+                  onSelect={account.handleSessionSelect}
+                />
+                <AccountSessionDetails
+                  detailStatus={account.detailStatus}
+                  error={account.error}
+                  recordingError={account.recordingError}
+                  recordingStatus={account.recordingStatus}
+                  recordingUrl={account.recordingUrl}
+                  selectedSession={account.selectedSession}
+                  selectedSessionAnswers={account.selectedSessionAnswers}
+                />
+              </div>
             </div>
           )}
         </div>

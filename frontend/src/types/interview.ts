@@ -2,7 +2,13 @@ export type SessionType = "interview" | "pitch";
 
 export type RecordMode = "video" | "audio" | "both";
 export type FeedbackStatus = "idle" | "loading" | "ready" | "error";
-export type ConnectionStatus = "idle" | "connecting" | "connected" | "disconnected" | "error";
+export type ConnectionStatus =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "paused"
+  | "disconnected"
+  | "error";
 
 export type CallEnvironmentId =
   | "teams"
@@ -10,6 +16,21 @@ export type CallEnvironmentId =
   | "audience"
   | "webinar"
   | "studio";
+
+export type AudienceStyleId =
+  | "theater"
+  | "boardroom"
+  | "classroom"
+  | "webinar-grid";
+
+export type AudienceStylePreset = {
+  id: AudienceStyleId;
+  label: string;
+  shortLabel: string;
+  description: string;
+  helperText: string;
+  accentClassName: string;
+};
 
 export type CallEnvironmentPreset = {
   id: CallEnvironmentId;
@@ -112,12 +133,4 @@ export type ActiveQuestion = {
   text: string;
   index: number;
   total: number;
-};
-
-export type LiveArticulationStats = {
-  mouthOpenRatio: number | null;
-  articulationRate: number | null;
-  mouthMovement: number | null;
-  statusText: string;
-  toneClassName: string;
 };
