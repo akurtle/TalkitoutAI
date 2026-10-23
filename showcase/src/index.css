@@ -1,0 +1,169 @@
+@import "tailwindcss";
+
+/*
+ * The Verbatim Record: a certified transcript on numbered pleading paper.
+ * Paper and ink own the page. Red is the margin rule and corrections only.
+ * Blue is exhibits only. Everything snaps to the 28px line.
+ */
+@theme {
+  --font-sans: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Courier Prime", "Courier New", ui-monospace, monospace;
+
+  --color-paper: #f3f4f1;
+  --color-sheet: #fbfbf9;
+  --color-desk: #e7e8e3;
+  --color-hair: #cfd1ca;
+  --color-hair-2: #b4b7ae;
+  --color-ink: #17191c;
+  --color-ink-2: #41464d;
+  --color-ink-3: #636973;
+  --color-red: #b3202e;
+  --color-blue: #2c56a0;
+  --color-bluewash: #e2e8f3;
+
+  --spacing-line: 28px;
+}
+
+:root {
+  color-scheme: light;
+  --line: 28px;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+  background: var(--color-paper);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-variation-settings: "wdth" 100;
+  font-feature-settings: "tnum" 0;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  caret-color: var(--color-red);
+}
+
+::selection {
+  background: var(--color-bluewash);
+  color: var(--color-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-blue);
+  outline-offset: 3px;
+}
+
+a {
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+/* Scrollbars from the palette */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-hair-2) transparent;
+}
+
+@utility wide {
+  font-variation-settings: "wdth" 125;
+}
+@utility narrow {
+  font-variation-settings: "wdth" 72;
+}
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── React Flow on paper ────────────────────────────────────────────────── */
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-controls-button-background-color: var(--color-sheet);
+  --xy-controls-button-background-color-hover: var(--color-desk);
+  --xy-controls-button-color: var(--color-ink);
+  --xy-controls-button-color-hover: var(--color-ink);
+  --xy-controls-button-border-color: var(--color-hair);
+  --xy-controls-box-shadow: none;
+  --xy-minimap-background-color: var(--color-sheet);
+  --xy-minimap-mask-background-color: rgb(231 232 227 / 0.7);
+  --xy-attribution-background-color: transparent;
+}
+
+.react-flow__controls {
+  border: 1px solid var(--color-ink);
+}
+
+.react-flow__controls-button {
+  border-bottom-color: var(--color-hair) !important;
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+/* Lucide icons are stroke-drawn; keep them outlines like every other icon on the page. */
+.react-flow__controls-button svg.lucide {
+  fill: none;
+  max-width: 14px;
+  max-height: 14px;
+}
+
+.react-flow__attribution a {
+  color: var(--color-ink-3);
+}
+
+.react-flow__handle {
+  width: 6px;
+  height: 6px;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  background: transparent;
+}
+
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
+.edge-flowing {
+  animation: dash-flow 1.4s linear infinite;
+}
+
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+.caret {
+  animation: caret 1s steps(1) infinite;
+}
+
+@keyframes rec {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.rec-blink {
+  animation: rec 1.6s steps(1) infinite;
+}

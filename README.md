@@ -10,6 +10,10 @@ The product currently supports two main workflows:
 1. Resume analysis: upload a PDF or DOCX resume and extract structured profile data.
 2. Mock interview or pitch practice: generate questions, capture audio/video, transcribe speech live, and compute post-session feedback.
 
+## Interactive Showcase
+
+`showcase/` contains a standalone, frontend-only portfolio demo (architecture explorer, request-lifecycle playback, simulated mock interview). It needs no backend or API keys. See [showcase/README.md](showcase/README.md).
+
 ## Repository Layout
 
 ```text
