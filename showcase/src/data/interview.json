@@ -1,0 +1,286 @@
+{
+  "roles": [
+    { "id": "backend", "label": "Backend Engineer", "hint": "APIs, data, distributed systems" },
+    { "id": "frontend", "label": "Frontend Engineer", "hint": "React, performance, accessibility" },
+    { "id": "ml", "label": "ML Engineer", "hint": "Models in production, evaluation" }
+  ],
+  "modes": [
+    { "id": "behavioral", "label": "Behavioural", "hint": "STAR-style stories about past work", "callType": "interview" },
+    { "id": "technical", "label": "Technical", "hint": "Role-specific depth and system design", "callType": "interview" },
+    { "id": "presentation", "label": "Presentation", "hint": "Goal, audience and objections", "callType": "presentation" }
+  ],
+  "levels": [
+    { "id": "junior", "label": "Junior", "prefix": "Junior" },
+    { "id": "mid", "label": "Mid-level", "prefix": "" },
+    { "id": "senior", "label": "Senior", "prefix": "Senior" }
+  ],
+  "questions": {
+    "behavioral": [
+      {
+        "id": "b1",
+        "category": "behavioral",
+        "question": "Tell me about a time you had to handle conflicting priorities.",
+        "segments": [
+          { "t": 2, "text": "So, um, last spring I was the only backend person on a two-team project." },
+          { "t": 8, "text": "Product wanted a new billing export by month end, and support needed a fix for duplicate invoices at the same time." },
+          { "t": 17, "text": "My task was basically to keep both from slipping without burning out the team." },
+          { "t": 24, "text": "I wrote down the cost of each delay, and the duplicate invoices were costing us refunds every single day." },
+          { "t": 33, "text": "So I shipped the idempotency fix first, in three days, and agreed a one-week extension on the export with the PM." },
+          { "t": 43, "text": "The result was zero duplicate invoices after the fix, and the export still landed before the customer's renewal." }
+        ],
+        "annotation": {
+          "strength": "Clear STAR shape: situation, task, action and a measurable result are all present.",
+          "improvement": "The opening filler ('So, um') delays the hook. Start with the situation directly."
+        }
+      },
+      {
+        "id": "b2",
+        "category": "behavioral",
+        "question": "Describe a situation where you disagreed with a teammate. What did you do?",
+        "segments": [
+          { "t": 2, "text": "A teammate wanted to rewrite our notification service in a new framework." },
+          { "t": 9, "text": "I, like, honestly thought the risk was too high two weeks before a launch." },
+          { "t": 16, "text": "Instead of arguing in the channel, I asked if we could pair for an hour and list what the rewrite would actually fix." },
+          { "t": 26, "text": "We found that two of the three problems were configuration issues we could fix in place." },
+          { "t": 34, "text": "We shipped those fixes, launched on time, and scheduled the rewrite as a proper project for the next quarter." }
+        ],
+        "annotation": {
+          "strength": "Shows a constructive resolution and keeps the relationship intact.",
+          "improvement": "Say what you learned from the disagreement to close the story."
+        }
+      },
+      {
+        "id": "b3",
+        "category": "behavioral",
+        "question": "Tell me about a time you made a mistake and how you handled it.",
+        "segments": [
+          { "t": 2, "text": "I once ran a database migration that locked a large table during business hours." },
+          { "t": 10, "text": "Requests started timing out, and, uh, I noticed it from the alerts within a couple of minutes." },
+          { "t": 18, "text": "I rolled the migration back, posted a short incident note, and owned it in the retro." },
+          { "t": 26, "text": "Then I added a checklist step to run large migrations with a batched backfill and a lock timeout." },
+          { "t": 35, "text": "We have used that pattern since, and we haven't had a migration-related outage." }
+        ],
+        "annotation": {
+          "strength": "Takes ownership quickly and turns the mistake into a lasting process change.",
+          "improvement": "Quantify the impact (requests affected, duration) to show judgement about severity."
+        }
+      }
+    ],
+    "technical": {
+      "backend": [
+        {
+          "id": "tb1",
+          "category": "technical",
+          "question": "How do you design APIs for backward compatibility?",
+          "segments": [
+            { "t": 2, "text": "I treat the response contract as additive by default: new fields are optional, existing fields never change meaning." },
+            { "t": 12, "text": "For breaking changes I version at the path or media-type level and run both versions side by side." },
+            { "t": 21, "text": "Um, I also like contract tests generated from the schema, so a pull request fails if it removes a field a client still uses." },
+            { "t": 32, "text": "And deprecation needs a timeline, with usage metrics per client, so you know when it is actually safe to remove the old version." }
+          ],
+          "annotation": {
+            "strength": "Covers additive changes, versioning, testing and deprecation, which is a complete lifecycle.",
+            "improvement": "A concrete example of a change you shipped would make this more memorable."
+          }
+        },
+        {
+          "id": "tb2",
+          "category": "technical",
+          "question": "How do you handle idempotency in distributed systems?",
+          "segments": [
+            { "t": 2, "text": "The client sends an idempotency key with any request that has side effects, like creating a payment." },
+            { "t": 10, "text": "The server stores the key with the result in the same transaction as the write." },
+            { "t": 18, "text": "So if the request is retried, you basically return the stored result instead of doing the work again." },
+            { "t": 27, "text": "For message consumers I use the same idea with a processed-messages table, because most queues deliver at least once." }
+          ],
+          "annotation": {
+            "strength": "Correctly ties the key and the write to one transaction, which is the subtle part.",
+            "improvement": "Mention key expiry and how you handle concurrent requests with the same key."
+          }
+        },
+        {
+          "id": "ts1",
+          "category": "system_design",
+          "question": "How would you design a scalable notification system?",
+          "segments": [
+            { "t": 2, "text": "I'd start with requirements: channels like email, push and SMS, and whether ordering or exactly-once matters." },
+            { "t": 12, "text": "Producers publish events to a queue, and a router service applies user preferences and rate limits." },
+            { "t": 22, "text": "Each channel gets its own worker pool so a slow email provider doesn't, you know, block push notifications." },
+            { "t": 32, "text": "Failed sends go to a retry queue with backoff, and every attempt is logged so support can answer 'did I get notified'." }
+          ],
+          "annotation": {
+            "strength": "Starts from requirements and isolates channels, a good scalability instinct.",
+            "improvement": "Add how you would store and query user preferences at scale."
+          }
+        }
+      ],
+      "frontend": [
+        {
+          "id": "tf1",
+          "category": "technical",
+          "question": "How do you optimize rendering performance in a large React app?",
+          "segments": [
+            { "t": 2, "text": "First I measure with the React profiler instead of guessing which components are slow." },
+            { "t": 10, "text": "Usually the fix is moving state down so fewer components re-render when it changes." },
+            { "t": 19, "text": "For long lists I virtualize, and I, um, split routes so users only download the code they need." },
+            { "t": 28, "text": "Memoization comes last, where the profiler shows an expensive render with stable inputs." }
+          ],
+          "annotation": {
+            "strength": "Measurement-first approach, with memoization correctly treated as a last resort.",
+            "improvement": "Name a metric you track, such as Interaction to Next Paint, to anchor the answer."
+          }
+        },
+        {
+          "id": "tf2",
+          "category": "technical",
+          "question": "How would you design an accessible component library?",
+          "segments": [
+            { "t": 2, "text": "I'd build on native elements wherever possible, because a real button already handles keyboard and focus." },
+            { "t": 11, "text": "For composite widgets like menus and dialogs, I follow the ARIA authoring practices for roles and keyboard behaviour." },
+            { "t": 21, "text": "Every component ships with, like, automated axe checks and a manual screen-reader test in the review checklist." },
+            { "t": 30, "text": "And tokens enforce contrast, so teams can't accidentally pick a colour pair that fails." }
+          ],
+          "annotation": {
+            "strength": "Native-first and tested with real assistive technology, not only automated checks.",
+            "improvement": "Mention reduced-motion and focus-visible handling to round it out."
+          }
+        },
+        {
+          "id": "ts1",
+          "category": "system_design",
+          "question": "How would you design a scalable notification system?",
+          "segments": [
+            { "t": 2, "text": "From the client side, I'd separate the notification inbox from real-time delivery." },
+            { "t": 10, "text": "The inbox is a paginated API, and a WebSocket or server-sent events stream pushes new items." },
+            { "t": 19, "text": "On the backend, producers publish to a queue and channel workers handle email, push and in-app separately." },
+            { "t": 29, "text": "I'd make read state optimistic in the UI and reconcile with the server, so it, um, feels instant." }
+          ],
+          "annotation": {
+            "strength": "Good split between durable inbox and live stream.",
+            "improvement": "Say how the client recovers missed events after a reconnect."
+          }
+        }
+      ],
+      "ml": [
+        {
+          "id": "tm1",
+          "category": "technical",
+          "question": "How do you evaluate and monitor model drift in production?",
+          "segments": [
+            { "t": 2, "text": "I monitor two things separately: input drift, and drift in the model's outputs or performance." },
+            { "t": 11, "text": "For inputs I compare feature distributions against the training set, with something like population stability index." },
+            { "t": 21, "text": "For performance, labels often arrive late, so I, um, track proxy metrics daily and true metrics when labels land." },
+            { "t": 31, "text": "Alerts trigger an investigation, not an automatic retrain, because sometimes the drift is a data pipeline bug." }
+          ],
+          "annotation": {
+            "strength": "Distinguishes input drift from performance drift and handles delayed labels.",
+            "improvement": "Give an example threshold or decision you have actually made."
+          }
+        },
+        {
+          "id": "tm2",
+          "category": "technical",
+          "question": "Describe how you would debug a model that performs well offline but poorly in production.",
+          "segments": [
+            { "t": 2, "text": "My first suspect is training-serving skew: the features in production aren't computed the same way." },
+            { "t": 11, "text": "I'd log the production features for a sample of requests and recompute them with the offline pipeline." },
+            { "t": 20, "text": "If they match, I look at whether the offline test set, you know, actually represents current traffic." },
+            { "t": 29, "text": "Then I check for leakage in training, since that inflates offline metrics and never shows up in production." }
+          ],
+          "annotation": {
+            "strength": "Ordered hypotheses from most to least likely, with a concrete test for each.",
+            "improvement": "Mention how you would prevent recurrence, for example with a shared feature store."
+          }
+        },
+        {
+          "id": "ts1",
+          "category": "system_design",
+          "question": "How would you design a scalable notification system?",
+          "segments": [
+            { "t": 2, "text": "I'd use a queue-based pipeline with separate workers per channel." },
+            { "t": 9, "text": "From an ML angle, the interesting part is ranking: deciding which notifications are worth sending." },
+            { "t": 18, "text": "A model scores each candidate for relevance, and a policy layer applies frequency caps so we, um, don't spam people." },
+            { "t": 28, "text": "I'd evaluate it with a holdout group, measuring engagement and unsubscribe rate together." }
+          ],
+          "annotation": {
+            "strength": "Brings role-specific depth to a general design question.",
+            "improvement": "Cover the delivery path in a bit more detail before moving to ranking."
+          }
+        }
+      ]
+    },
+    "presentation": [
+      {
+        "id": "p1",
+        "category": "presentation",
+        "question": "What is the primary goal of this presentation?",
+        "segments": [
+          { "t": 2, "text": "The goal is to get approval to move our reporting jobs to an event-driven pipeline this quarter." },
+          { "t": 11, "text": "Right now reports are, like, up to a day stale, and the sales team makes decisions on old numbers." },
+          { "t": 20, "text": "By the end, I want leadership to agree on the budget and on one team owning the migration." }
+        ],
+        "annotation": {
+          "strength": "States a single, decision-oriented goal in the first sentence.",
+          "improvement": "Quantify the business cost of stale reports to make the ask stronger."
+        }
+      },
+      {
+        "id": "p2",
+        "category": "presentation",
+        "question": "Who is the audience and what do they care about most?",
+        "segments": [
+          { "t": 2, "text": "The audience is the VP of sales, the finance lead and two engineering managers." },
+          { "t": 10, "text": "Sales cares about fresher numbers, finance cares about cost, and engineering cares about who maintains it." },
+          { "t": 20, "text": "So I'll, um, open with the sales impact, then show cost, and close on ownership and risk." }
+        ],
+        "annotation": {
+          "strength": "Maps each stakeholder to a concern and orders the talk accordingly.",
+          "improvement": "Name the one person whose approval matters most and tailor the close to them."
+        }
+      },
+      {
+        "id": "p3",
+        "category": "presentation",
+        "question": "What objections or questions do you expect?",
+        "segments": [
+          { "t": 2, "text": "The biggest objection will be 'why now', since the current reports technically work." },
+          { "t": 10, "text": "I'll answer with the two deals last quarter where stale numbers caused a wrong discount." },
+          { "t": 19, "text": "Finance will ask about running cost, so I have a basically side-by-side estimate ready as a backup slide." }
+        ],
+        "annotation": {
+          "strength": "Anticipates objections and prepares evidence for each one.",
+          "improvement": "Drop the filler 'basically' and lead with the strongest number."
+        }
+      }
+    ]
+  },
+  "feedback": {
+    "behavioral": {
+      "overall": 76,
+      "dimensions": { "clarity": 74, "structure": 84, "relevance": 79 },
+      "suggestions": [
+        "Lead with the situation in your first sentence instead of a warm-up phrase.",
+        "Close each story with what you would repeat or change next time.",
+        "Quantify impact where you can: requests affected, time saved, money recovered."
+      ]
+    },
+    "technical": {
+      "overall": 81,
+      "dimensions": { "clarity": 82, "structure": 77, "relevance": 86 },
+      "suggestions": [
+        "Anchor at least one answer in a specific system you built or operated.",
+        "Signal structure up front, for example: 'Three parts: contract, testing, deprecation.'",
+        "Mention failure modes and how you would detect them, not only the happy path."
+      ]
+    },
+    "presentation": {
+      "overall": 79,
+      "dimensions": { "clarity": 80, "structure": 81, "relevance": 77 },
+      "suggestions": [
+        "Put the single most important number in the first 15 seconds.",
+        "Replace filler words with a short pause. It reads as confidence.",
+        "End each answer with the decision you want from the audience."
+      ]
+    }
+  }
+}
