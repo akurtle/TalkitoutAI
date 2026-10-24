@@ -1,5 +1,8 @@
 # TalkitoutAI
 
+
+Live showcase at: https://talkitout-ai-zeta.vercel.app/
+
 TalkitoutAI is a full-stack practice platform for resume review and mock interview coaching. The repository combines:
 
 - A `FastAPI` backend for resume parsing, question generation, speech feedback, video feedback, and real-time audio/video session endpoints.
